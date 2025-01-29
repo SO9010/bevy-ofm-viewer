@@ -1,0 +1,12 @@
+[package]
+name = "bevy-ofm-viewer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.15.1"
+bevy_pancam = "0.17.0"
+bevy_prototype_lyon = "0.13.0"
+geo = "0.29.3"
+mvt-reader = "1.6.0"
+rasterize = "0.4.4"
