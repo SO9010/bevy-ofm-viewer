@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use bevy::{asset::{Assets, RenderAssetUsages}, ecs::system::{Commands, ResMut, Resource}, image::{Image}, math::{UVec2, Vec2}, render::render_resource::{Extent3d, TextureDimension, TextureFormat}, sprite::Sprite, transform::components::Transform};
+use bevy::{asset::{Assets, RenderAssetUsages}, ecs::system::{Commands, ResMut, Resource}, image::Image, math::Vec2, render::render_resource::{Extent3d, TextureDimension, TextureFormat}, sprite::Sprite, transform::components::Transform};
 use mvt_reader::Reader;
 use raqote::{AntialiasMode, DrawOptions, DrawTarget, PathBuilder, SolidSource, Source, StrokeStyle};
 use rstar::{RTree, RTreeObject, AABB};
@@ -40,7 +40,7 @@ impl RTreeObject for Tile {
     }
 }
 impl Tile {
-    pub fn new(name: String, image: Image, tile_location: Coord, tile_location_in_game: UVec2, zoom: i32) -> Self {
+    pub fn new(name: String, image: Image, tile_location: Coord, zoom: i32) -> Self {
         Self {
             name,
             image,
@@ -87,7 +87,7 @@ pub fn display_ofm_tile(
     overpass_settings.tiles_to_render.clear();
 }
 
-pub fn get_ofm_data<'a>(x: u64, y: u64, zoom: u64, tile_size: u32) -> Image {
+pub fn get_ofm_data(x: u64, y: u64, zoom: u64, tile_size: u32) -> Image {
     let data = send_ofm_request(x, y, zoom);
     
     ofm_to_image(data, tile_size)
@@ -108,7 +108,6 @@ fn send_ofm_request(x: u64, y: u64, zoom: u64) -> Vec<u8> {
     while status == 429 {
         if let Ok(response) = ureq::get(format!("{}/{}/{}/{}.pbf", url, zoom, x, y).as_str()).call() {
             if response.status() == 200 {
-                status = 200;
                 let mut reader = response.into_reader();
                 let mut bytes = Vec::new();
                 reader.read_to_end(&mut bytes).expect("Failed to read bytes from response");
@@ -139,8 +138,8 @@ fn ofm_to_image(data: Vec<u8>, size: u32) -> Image {
     let scale: f32 = 1.675;
     // Iterate over layers and features]
     let layer_names = tile.get_layer_names().unwrap();
-    for (i, title) in layer_names.into_iter().enumerate() {
-        for (layer_no, features) in tile.get_features(i).iter().enumerate() {
+    for (i, _title) in layer_names.into_iter().enumerate() {
+        for features in tile.get_features(i).iter() {
             for feature in features {
                 match &feature.geometry {
                     geo::Geometry::Point(point) 

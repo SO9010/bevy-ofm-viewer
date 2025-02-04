@@ -2,7 +2,7 @@
 use bevy::{prelude::*, utils::HashSet};
 use bevy_ecs_tilemap::{map::{TilemapId, TilemapTexture, TilemapTileSize}, tiles::{TileBundle, TilePos, TileStorage}, TilemapBundle, TilemapPlugin};
 
-use crate::{geo_to_tile, ofm_api::{get_ofm_data, OfmTiles}, world_mercator_to_lat_lon, STARTING_LONG_LAT, STARTING_ZOOM};
+use crate::{geo_to_tile, ofm_api::get_ofm_data, world_mercator_to_lat_lon, STARTING_LONG_LAT, STARTING_ZOOM};
 
 
 const TILE_SIZE: TilemapTileSize = TilemapTileSize { x: 2446.0, y: 2446.0};
@@ -99,7 +99,6 @@ fn spawn_chunks_around_camera(
     asset_server: Res<AssetServer>,
     camera_query: Query<&Transform, With<Camera>>,
     mut chunk_manager: ResMut<ChunkManager>,
-    ofm_tiles: ResMut<OfmTiles>,
 ) {
     for transform in camera_query.iter() {
         let camera_chunk_pos = camera_pos_to_chunk_pos(&transform.translation.xy());

@@ -32,7 +32,7 @@ fn main() {
         ..Default::default()
     }), PanCamPlugin, TileMapPlugin))
     .add_systems(Startup, setup_camera)
-    .add_systems(Update, (handle_mouse, handle_keyboard, display_ofm_tile))
+    .add_systems(Update, (handle_mouse, display_ofm_tile))
     .insert_resource(OfmTiles {
         tiles: RTree::new(),
         tiles_to_render: Vec::new(),
@@ -41,29 +41,11 @@ fn main() {
     .run();
 }
 
-pub fn handle_keyboard(
-    keys: Res<ButtonInput<KeyCode>>,
-    map_bundle: ResMut<OfmTiles>,
-    commands: Commands,
-    query: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
-    primary_window_query: Query<&Window, With<PrimaryWindow>>,
-    ortho_projection_query: Query<&mut OrthographicProjection, With<Camera>>,
-) {
-    let (camera, camera_transform) = query.single();
-    let window: &Window = primary_window_query.single();
-    //if keys.pressed(KeyCode::KeyU) {
-   //     let zoom = STARTING_ZOOM;
-   //     map_bundle.tiles_to_render.extend(rect_to_tile_requests(camera_space_to_lat_long_rect(camera_transform, window, ortho_projection_query.single().clone()).unwrap(), zoom));
-   // }
-}
-
 pub fn handle_mouse(
     buttons: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
-    q_pancam: Query<&mut PanCam>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
 ) {
-    let window = q_windows.single();
     let (camera, camera_transform) = camera.single();
 
     if buttons.just_pressed(MouseButton::Left) {
