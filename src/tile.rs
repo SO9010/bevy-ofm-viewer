@@ -1,4 +1,4 @@
-use bevy::{log::info, math::Vec2};
+use bevy::math::Vec2;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Coord {
@@ -19,8 +19,8 @@ impl Coord {
     }
 
     pub fn to_tile_coords(&self, zoom: u32) -> (u32, u32) {
-        let x = ((self.long + 180.0) / 360.0 * (2_i32.pow(zoom as u32) as f32)).floor() as i32;
-        let y = ((1.0 - (self.lat.to_radians().tan() + 1.0 / self.lat.to_radians().cos()).ln() / std::f32::consts::PI) / 2.0 * (2_i32.pow(zoom as u32) as f32)).floor() as i32;
+        let x = ((self.long + 180.0) / 360.0 * (2_i32.pow(zoom) as f32)).floor() as i32;
+        let y = ((1.0 - (self.lat.to_radians().tan() + 1.0 / self.lat.to_radians().cos()).ln() / std::f32::consts::PI) / 2.0 * (2_i32.pow(zoom) as f32)).floor() as i32;
         (x as u32, y as u32)
     }
 }

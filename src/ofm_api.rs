@@ -1,13 +1,11 @@
-use std::{clone, fs, path::Path};
+use std::{fs, path::Path};
 
-use bevy::{asset::{Assets, RenderAssetUsages}, ecs::system::{Commands, ResMut, Resource}, image::Image, log::info, math::{Rect, UVec2, Vec2, Vec3}, render::render_resource::{Extent3d, TextureDimension, TextureFormat}, sprite::Sprite, transform::components::Transform};
-use font_kit::{family_name::FamilyName, properties::{Properties, Weight}, source::SystemSource};
-use geo::Translate;
+use bevy::{asset::{Assets, RenderAssetUsages}, ecs::system::{Commands, ResMut, Resource}, image::{Image}, math::{UVec2, Vec2}, render::render_resource::{Extent3d, TextureDimension, TextureFormat}, sprite::Sprite, transform::components::Transform};
 use mvt_reader::Reader;
-use raqote::{AntialiasMode, DrawOptions, DrawTarget, PathBuilder, Point, SolidSource, Source, StrokeStyle};
+use raqote::{AntialiasMode, DrawOptions, DrawTarget, PathBuilder, SolidSource, Source, StrokeStyle};
 use rstar::{RTree, RTreeObject, AABB};
 
-use crate::{lat_lon_to_world_mercator, level_to_tile_width, tile::Coord, world_mercator_to_lat_lon, STARTING_LONG_LAT};
+use crate::{level_to_tile_width, tile::Coord, world_mercator_to_lat_lon, STARTING_LONG_LAT};
 
 #[derive(Resource, Clone)]
 pub struct OfmTiles {
@@ -89,10 +87,10 @@ pub fn display_ofm_tile(
     overpass_settings.tiles_to_render.clear();
 }
 
-pub fn get_ofm_data(x: u64, y: u64, zoom: u64, tile_size: u32) -> Image {
+pub fn get_ofm_data<'a>(x: u64, y: u64, zoom: u64, tile_size: u32) -> Image {
     let data = send_ofm_request(x, y, zoom);
-    let image = ofm_to_image(data, tile_size, x, y, zoom);
-    return image;
+    
+    ofm_to_image(data, tile_size)
 }
 
 fn send_ofm_request(x: u64, y: u64, zoom: u64) -> Vec<u8> {
@@ -131,11 +129,11 @@ fn send_ofm_request(x: u64, y: u64, zoom: u64) -> Vec<u8> {
 }
 
 /// This converts it to an image which is as many meters as the tile width
-fn ofm_to_image(data: Vec<u8>, size: u32, x: u64, y: u64, zoom: u64) -> Image {
+fn ofm_to_image(data: Vec<u8>, size: u32) -> Image {
     // Create an OsmPbfReader
     let tile = Reader::new(data).unwrap();
 
-    let mut dt = DrawTarget::new(size as i32, size as i32);
+    let mut dt = DrawTarget::new(size as i32 , size as i32);
     let mut pb = PathBuilder::new();
 
     let scale: f32 = 1.675;

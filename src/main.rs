@@ -9,7 +9,6 @@ use bevy_pancam::PanCam;
 use bevy_pancam::PanCamPlugin;
 use ofm_api::display_ofm_tile;
 use ofm_api::get_ofm_data;
-use ofm_api::tile_width_meters;
 use ofm_api::OfmTiles;
 use ofm_api::Tile;
 use rstar::RTree;
@@ -44,8 +43,8 @@ fn main() {
 
 pub fn handle_keyboard(
     keys: Res<ButtonInput<KeyCode>>,
-    mut map_bundle: ResMut<OfmTiles>,
-    mut commands: Commands,
+    map_bundle: ResMut<OfmTiles>,
+    commands: Commands,
     query: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
     primary_window_query: Query<&Window, With<PrimaryWindow>>,
     ortho_projection_query: Query<&mut OrthographicProjection, With<Camera>>,
@@ -61,7 +60,7 @@ pub fn handle_keyboard(
 pub fn handle_mouse(
     buttons: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
-    mut q_pancam: Query<&mut PanCam>,
+    q_pancam: Query<&mut PanCam>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
 ) {
     let window = q_windows.single();
@@ -144,9 +143,9 @@ pub fn rect_to_tile_requests(rect: geo::Rect<f32>, zoom: u32) -> Vec<Tile> {
             let tile_coords: (i32, i32) = geo_to_tile(
                 rect.min().y as f64 + (y as f64 * tile_width as f64),
                 rect.min().x as f64 + (x as f64 * tile_width as f64),
-                zoom as u32,
+                zoom,
             );  
-            let tile_coords_to_lat_lon = tile_to_geo(tile_coords.0, tile_coords.1, zoom as u32);
+            let tile_coords_to_lat_lon = tile_to_geo(tile_coords.0, tile_coords.1, zoom);
             // The the tile coords is correct!
             requests.push(Tile {
                 name: format!("tile_{}_{}.pbf", tile_coords.0, tile_coords.1),
