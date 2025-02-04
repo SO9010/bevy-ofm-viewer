@@ -115,30 +115,27 @@ fn spawn_chunks_around_camera(
     mut chunk_manager: ResMut<ChunkManager>,
     mut ofm_tiles: ResMut<OfmTiles>,
 ) {
-    if chunk_manager.refresh_chunks {
-        chunk_manager.refresh_chunks = false;
-        for transform in camera_query.iter() {
-            let camera_chunk_pos = camera_pos_to_chunk_pos(&transform.translation.xy());
-            let range = 1; // Adjust this range to limit the number of chunks being loaded
+    for transform in camera_query.iter() {
+        let camera_chunk_pos = camera_pos_to_chunk_pos(&transform.translation.xy());
+        let range = 1; // Adjust this range to limit the number of chunks being loaded
 
-            for y in (camera_chunk_pos.y - range)..=(camera_chunk_pos.y + range) {
-                for x in (camera_chunk_pos.x - range)..=(camera_chunk_pos.x + range) {
-                    let chunk_pos = IVec2::new(x, y);
-                    if !chunk_manager.spawned_chunks.contains(&chunk_pos) {
-                        let world_pos = chunk_pos_to_world_pos(chunk_pos);
-                        let position = world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), STARTING_LONG_LAT);
-                        let tile_coords = geo_to_tile(position.1, position.0, STARTING_ZOOM.into());
-                        let tile_key = (
-                            tile_coords.0 as i64, 
-                            tile_coords.1 as i64, 
-                            STARTING_ZOOM
-                        );
-                                                
-                        chunk_manager.spawned_chunks.insert(chunk_pos);
-                        let tile_image = get_ofm_data(tile_key.0 as u64, tile_key.1 as u64, tile_key.2 as u64, TILE_SIZE.x as u32);
-                        let tile_handle = asset_server.add(tile_image); // Load the image from file path
-                        spawn_chunk(&mut commands, tile_handle, chunk_pos);
-                    }
+        for y in (camera_chunk_pos.y - range)..=(camera_chunk_pos.y + range) {
+            for x in (camera_chunk_pos.x - range)..=(camera_chunk_pos.x + range) {
+                let chunk_pos = IVec2::new(x, y);
+                if !chunk_manager.spawned_chunks.contains(&chunk_pos) {
+                    let world_pos = chunk_pos_to_world_pos(chunk_pos);
+                    let position = world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), STARTING_LONG_LAT);
+                    let tile_coords = geo_to_tile(position.1, position.0, STARTING_ZOOM.into());
+                    let tile_key = (
+                        tile_coords.0 as i64,
+                        tile_coords.1 as i64,
+                        STARTING_ZOOM
+                    );
+
+                    chunk_manager.spawned_chunks.insert(chunk_pos);
+                    let tile_image = get_ofm_data(tile_key.0 as u64, tile_key.1 as u64, tile_key.2 as u64, TILE_SIZE.x as u32);
+                    let tile_handle = asset_server.add(tile_image); // Load the image from file path
+                    spawn_chunk(&mut commands, tile_handle, chunk_pos);
                 }
             }
         }
