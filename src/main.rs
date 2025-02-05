@@ -7,8 +7,10 @@ use bevy::window::PrimaryWindow;
 use bevy_pancam::DirectionKeys;
 use bevy_pancam::PanCam;
 use bevy_pancam::PanCamPlugin;
+use geo::scale;
 use ofm_api::display_ofm_tile;
 use ofm_api::get_ofm_data;
+use ofm_api::tile_width_meters;
 use ofm_api::OfmTiles;
 use ofm_api::Tile;
 use rstar::RTree;
@@ -21,6 +23,7 @@ pub mod tile_map;
 
 pub const STARTING_LONG_LAT: Coord = Coord::new(52.18492, 0.14281721);
 pub const STARTING_ZOOM: u32 = 14;
+pub const TILE_QUALITY: i32 = 516;
 
 fn main() {
     App::new()
@@ -111,36 +114,6 @@ pub fn camera_space_to_lat_long_rect(
     ))
 }
 
-// STARTING_ZOOM/8198/5397
-// https://wiki.openstreetmap.org/wiki/Zoom_levels
-pub fn rect_to_tile_requests(rect: geo::Rect<f32>, zoom: u32) -> Vec<Tile> {
-    let tile_width = level_to_tile_width(zoom as i32);
-    let mut requests = Vec::new();
-
-    let tile_no_x = (rect.width() / tile_width + 1.).ceil() as i32;
-    let tile_no_y = (rect.height() / tile_width + 1.).ceil() as i32;
-
-    for y in 0..tile_no_y {
-        for x in 0..tile_no_x {
-            let tile_coords: (i32, i32) = geo_to_tile(
-                rect.min().y as f64 + (y as f64 * tile_width as f64),
-                rect.min().x as f64 + (x as f64 * tile_width as f64),
-                zoom,
-            );  
-            let tile_coords_to_lat_lon = tile_to_geo(tile_coords.0, tile_coords.1, zoom);
-            // The the tile coords is correct!
-            requests.push(Tile {
-                name: format!("tile_{}_{}.pbf", tile_coords.0, tile_coords.1),
-                image: get_ofm_data(tile_coords.0 as u64, tile_coords.1 as u64, zoom as u64, world_degreese_to_world_mercator(tile_width)),
-                tile_location: Coord::new((tile_coords_to_lat_lon.1) as f32, tile_coords_to_lat_lon.0 as f32),
-                zoom: zoom as i32,
-            });
-        }
-    }
-    requests
-}
-
-
 
 pub fn level_to_tile_width(level: i32) -> f32 {
     360.0 / (2_i32.pow(level as u32) as f32)
@@ -187,30 +160,42 @@ pub fn tile_coords_to_lat_lon(x: i32, y: i32, zoom: i32) -> (f32, f32) {
 }
 
 pub fn world_mercator_to_lat_lon(
-    x_offset: f64, 
-    y_offset: f64, 
+    x_offset: f64,
+    y_offset: f64,
     reference: Coord, // Reference point in lat/lon (degrees)
 ) -> (f64, f64) {
-    // 1. Convert reference lat/lon to global Mercator meters
+    // Convert reference point to Web Mercator
     let (ref_x, ref_y) = lat_lon_to_world_mercator(reference.lat, reference.long);
 
-    // 2. Apply offsets to global Mercator coordinates
-    let global_x = ref_x + x_offset;
-    let global_y = ref_y + y_offset;
+    // Calculate meters per pixel (adjust for your tile setup)
+    let meters_per_tile = 20037508.34 * 2.0 / (2.0_f64.powi(STARTING_ZOOM as i32)); // At zoom level N
+    let scale = meters_per_tile / TILE_QUALITY as f64;
 
-    // 3. Reverse Mercator projection to get final lat/lon
+    // Apply offsets with corrected scale
+    let global_x = ref_x + (x_offset * scale);
+    let global_y = ref_y + (y_offset * scale);
+
+    // Inverse Mercator to convert back to lat/lon
     let lon = (global_x / 20037508.34) * 180.0;
-
-    let mut lat = (global_y / 20037508.34) * 180.0;
-    lat = 180.0 / std::f64::consts::PI * 
-          (2.0 * (lat * std::f64::consts::PI / 180.0).exp().atan() - std::f64::consts::PI / 2.0);
+    let lat = (global_y / 20037508.34 * 180.0).to_radians();
+    let lat = 2.0 * lat.exp().atan() - std::f64::consts::FRAC_PI_2;
+    let lat = lat.to_degrees();
 
     (lat, lon)
 }
 
 // Helper: Convert lat/lon (degrees) to global Mercator meters (EPSG:3857)
 fn lat_lon_to_world_mercator(lat: f32, lon: f32) -> (f64, f64) {
-    let x = lon * 20037508.34 / 180.0;
-    let y = (lat.to_radians().tan() + 1.0 / lat.to_radians().cos()).ln() * 20037508.34 / std::f32::consts::PI;
-    (x.into(), y.into())
+    let lon_rad = lon.to_radians() as f64;
+    let lat_rad = lat.to_radians() as f64;
+    
+    // Earth's circumference (meters) for Web Mercator (WGS84)
+    const EARTH_RADIUS: f64 = 20037508.34;
+
+    let x = lon_rad * EARTH_RADIUS / std::f64::consts::PI;
+    
+    // CORRECTED Y formula: ln(tan(π/4 + φ/2)) * radius
+    let y = (std::f64::consts::FRAC_PI_4 + lat_rad / 2.0).tan().ln() * EARTH_RADIUS / std::f64::consts::PI;
+
+    (x, y)
 }

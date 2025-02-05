@@ -1,11 +1,11 @@
 use std::{fs, path::Path};
 
-use bevy::{asset::{Assets, RenderAssetUsages}, ecs::system::{Commands, ResMut, Resource}, image::Image, math::Vec2, render::render_resource::{Extent3d, TextureDimension, TextureFormat}, sprite::Sprite, transform::components::Transform};
+use bevy::{asset::{Assets, RenderAssetUsages}, ecs::system::{Commands, ResMut, Resource}, image::Image, log::info, math::Vec2, render::render_resource::{Extent3d, TextureDimension, TextureFormat}, sprite::Sprite, transform::components::Transform};
 use mvt_reader::Reader;
 use raqote::{AntialiasMode, DrawOptions, DrawTarget, PathBuilder, SolidSource, Source, StrokeStyle};
 use rstar::{RTree, RTreeObject, AABB};
 
-use crate::{level_to_tile_width, tile::Coord, world_mercator_to_lat_lon, STARTING_LONG_LAT};
+use crate::{level_to_tile_width, tile::Coord, world_mercator_to_lat_lon, STARTING_LONG_LAT, STARTING_ZOOM, TILE_QUALITY};
 
 #[derive(Resource, Clone)]
 pub struct OfmTiles {
@@ -50,19 +50,6 @@ impl Tile {
     }
 }
 
-/*
-5-01-31T01:38:37.820064Z  INFO bevy_ofm_viewer::ofm_api: convertied: Coord { lat: 52.17394, long: 0.1538086 } to (0.0, 0.0)
-2025-01-31T01:38:37.827485Z  INFO bevy_ofm_viewer::ofm_api: convertied: Coord { lat: 52.19591, long: 0.1538086 } to (0.0, 2445.9849)
-2025-01-31T01:38:37.834549Z  INFO bevy_ofm_viewer::ofm_api: convertied: Coord { lat: 52.17394, long: 0.17578125 } to (2445.9849, 0.0)
-2025-01-31T01:38:37.841368Z  INFO bevy_ofm_viewer::ofm_api: convertied: Coord { lat: 52.19591, long: 0.17578125 } to (2445.9849, 2445.9849)
-
-025-01-31T01:38:42.310090Z  INFO bevy_ofm_viewer::ofm_api: convertied: Coord { lat: 52.16402, long: 0.15291189 } to (-99.82099, -1104.0903)
-2025-01-31T01:38:42.318214Z  INFO bevy_ofm_viewer::ofm_api: convertied: Coord { lat: 52.185993, long: 0.15291189 } to (-99.82099, 1341.8945)
-2025-01-31T01:38:42.325527Z  INFO bevy_ofm_viewer::ofm_api: convertied: Coord { lat: 52.16402, long: 0.17488454 } to (2346.1638, -1104.0903)
-2025-01-31T01:38:42.333455Z  INFO bevy_ofm_viewer::ofm_api: convertied: Coord { lat: 52.185993, long: 0.17488454 } to (2346.1638, 1341.8945)
-
-*/
-
 pub fn tile_width_meters(zoom: u32) -> f64 {
     let earth_circumference_meters = 40075016.686;
     let num_tiles = 2_u32.pow(zoom) as f64;
@@ -87,10 +74,28 @@ pub fn display_ofm_tile(
     overpass_settings.tiles_to_render.clear();
 }
 
-pub fn get_ofm_data(x: u64, y: u64, zoom: u64, tile_size: u32) -> Image {
+pub fn get_ofm_image(x: u64, y: u64, zoom: u64, tile_size: u32) -> Image {
     let data = send_ofm_request(x, y, zoom);
-    
-    ofm_to_image(data, tile_size)
+    buffer_to_bevy_image(ofm_to_data_image(data, tile_size), tile_size)
+}
+
+pub fn get_ofm_data(x: u64, y: u64, zoom: u64, tile_size: u32) -> Vec<u8> {
+    let data = send_ofm_request(x, y, zoom);
+    ofm_to_data_image(data, tile_size)
+}
+
+pub fn buffer_to_bevy_image(data: Vec<u8>, tile_size: u32) -> Image {
+    Image::new(
+        Extent3d {
+            width: tile_size,
+            height: tile_size,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    )
 }
 
 fn send_ofm_request(x: u64, y: u64, zoom: u64) -> Vec<u8> {
@@ -127,15 +132,17 @@ fn send_ofm_request(x: u64, y: u64, zoom: u64) -> Vec<u8> {
     vec![]
 }
 
-/// This converts it to an image which is as many meters as the tile width
-fn ofm_to_image(data: Vec<u8>, size: u32) -> Image {
-    // Create an OsmPbfReader
+/// This converts it to an image which is as many meters as the tile width This would be AAAMAAZZZING to multithread
+fn ofm_to_data_image(data: Vec<u8>, size: u32) -> Vec<u8> {
     let tile = Reader::new(data).unwrap();
-
+    //let size_multiplyer = TILE_QUALITY as u32 / size ;
     let mut dt = DrawTarget::new(size as i32 , size as i32);
     let mut pb = PathBuilder::new();
+    // The value 0.56.... Is to account for tile overflows
+    // let scale = 0.597014925373 ;
+    let scale = TILE_QUALITY as f32 / tile_width_meters(STARTING_ZOOM.try_into().unwrap()) as f32;
+    dt.set_transform(&raqote::Transform::scale(scale, scale));
 
-    let scale: f32 = 1.675;
     // Iterate over layers and features]
     let layer_names = tile.get_layer_names().unwrap();
     for (i, _title) in layer_names.into_iter().enumerate() {
@@ -144,25 +151,25 @@ fn ofm_to_image(data: Vec<u8>, size: u32) -> Image {
                 match &feature.geometry {
                     geo::Geometry::Point(point) 
                         => {
-                            pb.move_to(point.x()/scale, point.y()/scale);
-                            pb.line_to(point.x()/scale + 1.0, point.y()/scale + 1.0);
-                            pb.line_to(point.x()/scale + 1.0, point.y()/scale);
-                            pb.line_to(point.x()/scale, point.y()/scale + 1.0)
+                            pb.move_to(point.x(), point.y());
+                            pb.line_to(point.x() + 1.0, point.y() + 1.0);
+                            pb.line_to(point.x() + 1.0, point.y());
+                            pb.line_to(point.x(), point.y() + 1.0)
                         },
                     geo::Geometry::Line(line) 
                         => {
-                            pb.move_to(line.start.x/scale, line.start.y/scale);
-                            pb.line_to(line.end.x/scale, line.end.y/scale);
+                            pb.move_to(line.start.x, line.start.y);
+                            pb.line_to(line.end.x, line.end.y);
                         },
                     geo::Geometry::LineString(line_string) 
                         => {
                             for (j, line) in line_string.lines().enumerate() {
                                 if j == 0 {
-                                    pb.move_to(line.start.x/scale, line.start.y/scale);
-                                    pb.line_to(line.end.x/scale, line.end.y/scale);
+                                    pb.move_to(line.start.x, line.start.y);
+                                    pb.line_to(line.end.x, line.end.y);
                                 } else {
-                                    pb.line_to(line.start.x/scale, line.start.y/scale);
-                                    pb.line_to(line.end.x/scale, line.end.y/scale);
+                                    pb.line_to(line.start.x, line.start.y);
+                                    pb.line_to(line.end.x, line.end.y);
                                 }
                             }
                         },
@@ -170,11 +177,11 @@ fn ofm_to_image(data: Vec<u8>, size: u32) -> Image {
                         => {
                             for (j, line) in polygon.exterior().0.iter().enumerate() {
                                 if j == 0 {
-                                    pb.move_to(line.x/scale, line.y/scale);
-                                    pb.line_to(line.x/scale, line.y/scale);
+                                    pb.move_to(line.x, line.y);
+                                    pb.line_to(line.x, line.y);
                                 } else {
-                                    pb.line_to(line.x/scale, line.y/scale);
-                                    pb.line_to(line.x/scale, line.y/scale);
+                                    pb.line_to(line.x, line.y);
+                                    pb.line_to(line.x, line.y);
                                 }
                             }
                         },
@@ -183,11 +190,11 @@ fn ofm_to_image(data: Vec<u8>, size: u32) -> Image {
                             for polygon in multi_polygon {
                                 for (j, line) in polygon.exterior().0.iter().enumerate() {
                                     if j == 0 {
-                                        pb.move_to(line.x/scale, line.y/scale);
-                                        pb.line_to(line.x/scale, line.y/scale);
+                                        pb.move_to(line.x, line.y);
+                                        pb.line_to(line.x, line.y);
                                     } else {
-                                        pb.line_to(line.x/scale, line.y/scale);
-                                        pb.line_to(line.x/scale, line.y/scale);
+                                        pb.line_to(line.x, line.y);
+                                        pb.line_to(line.x, line.y);
                                     }
                                 }
                             }
@@ -195,21 +202,21 @@ fn ofm_to_image(data: Vec<u8>, size: u32) -> Image {
                     geo::Geometry::MultiPoint(multi_point) 
                         => {
                             for point in multi_point {
-                                pb.move_to(point.x()/scale, point.y()/scale);
-                                pb.line_to(point.x()/scale + 1.0, point.y()/scale + 1.0);
-                                pb.line_to(point.x()/scale + 1.0, point.y()/scale);
-                                pb.line_to(point.x()/scale, point.y()/scale + 1.0)};
+                                pb.move_to(point.x(), point.y());
+                                pb.line_to(point.x() + 1.0, point.y() + 1.0);
+                                pb.line_to(point.x() + 1.0, point.y());
+                                pb.line_to(point.x(), point.y() + 1.0)};
                         },
                     geo::Geometry::MultiLineString(multi_line_string) 
                         => {
                             for line_string in multi_line_string {
                                 for (j, line) in line_string.lines().enumerate() {
                                     if j == 0 {
-                                        pb.move_to(line.start.x/scale, line.start.y/scale);
-                                        pb.line_to(line.end.x/scale, line.end.y/scale);
+                                        pb.move_to(line.start.x, line.start.y);
+                                        pb.line_to(line.end.x, line.end.y);
                                     } else {
-                                        pb.line_to(line.start.x/scale, line.start.y/scale);
-                                        pb.line_to(line.end.x/scale, line.end.y/scale);
+                                        pb.line_to(line.start.x, line.start.y);
+                                        pb.line_to(line.end.x, line.end.y);
                                     }
                                 }
                             }
@@ -255,15 +262,5 @@ fn ofm_to_image(data: Vec<u8>, size: u32) -> Image {
         },
     );
 
-    Image::new(
-        Extent3d {
-            width: size,
-            height: size,
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        dt.get_data_u8().to_vec(),
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::default(),
-    )
+    dt.get_data_u8().to_vec()
 }
