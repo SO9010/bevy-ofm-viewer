@@ -137,10 +137,11 @@ fn ofm_to_data_image(data: Vec<u8>, size: u32) -> Vec<u8> {
     let tile = Reader::new(data).unwrap();
     //let size_multiplyer = TILE_QUALITY as u32 / size ;
     let mut dt = DrawTarget::new(size as i32 , size as i32);
-    let mut pb = PathBuilder::new();
+    let mut pb: PathBuilder = PathBuilder::new();
+
     // The value 0.56.... Is to account for tile overflows
     // let scale = 0.597014925373 ;
-    let scale = TILE_QUALITY as f32 / tile_width_meters(STARTING_ZOOM.try_into().unwrap()) as f32;
+    let scale = (TILE_QUALITY as f32 / tile_width_meters(STARTING_ZOOM.try_into().unwrap()) as f32) * 0.597014925373;
     dt.set_transform(&raqote::Transform::scale(scale, scale));
 
     // Iterate over layers and features]

@@ -23,7 +23,7 @@ pub mod tile_map;
 
 pub const STARTING_LONG_LAT: Coord = Coord::new(52.18492, 0.14281721);
 pub const STARTING_ZOOM: u32 = 14;
-pub const TILE_QUALITY: i32 = 516;
+pub const TILE_QUALITY: i32 = 512;
 
 fn main() {
     App::new()
@@ -171,10 +171,11 @@ pub fn world_mercator_to_lat_lon(
     let meters_per_tile = 20037508.34 * 2.0 / (2.0_f64.powi(STARTING_ZOOM as i32)); // At zoom level N
     let scale = meters_per_tile / TILE_QUALITY as f64;
 
+    // 1213.511890746124
     // Apply offsets with corrected scale
-    let global_x = ref_x + (x_offset * scale);
-    let global_y = ref_y + (y_offset * scale);
-
+    let global_x = ref_x + (x_offset * scale).round();
+    let global_y = ref_y + (y_offset * scale).round();
+    info!("Global x: {}, Global y: {}", (x_offset * scale).round(), (y_offset * scale).round());
     // Inverse Mercator to convert back to lat/lon
     let lon = (global_x / 20037508.34) * 180.0;
     let lat = (global_y / 20037508.34 * 180.0).to_radians();
