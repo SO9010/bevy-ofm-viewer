@@ -1,28 +1,17 @@
 use std::f64::consts::PI;
 
-use bevy::app::*;
-use bevy::core_pipeline::bloom::Bloom;
-use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
-use bevy_pancam::DirectionKeys;
-use bevy_pancam::PanCam;
-use bevy_pancam::PanCamPlugin;
-use geo::scale;
-use ofm_api::display_ofm_tile;
-use ofm_api::get_ofm_data;
-use ofm_api::tile_width_meters;
-use ofm_api::OfmTiles;
-use ofm_api::Tile;
+use bevy::{prelude::*, core_pipeline::bloom::Bloom, window::PrimaryWindow};
+use bevy_pancam::{DirectionKeys, PanCam, PanCamPlugin};
+use ofm_api::{OfmTiles, display_ofm_tile};
 use rstar::RTree;
 use tile::Coord;
-use tile_map::TileMapPlugin;
+use tile_map::{ZoomManager, TileMapPlugin};
 
 pub mod ofm_api;
 pub mod tile;
 pub mod tile_map;
 
 pub const STARTING_LONG_LAT: Coord = Coord::new(52.18492, 0.14281721);
-pub const STARTING_ZOOM: u32 = 14;
 pub const TILE_QUALITY: i32 = 512;
 
 fn main() {
@@ -48,13 +37,14 @@ pub fn handle_mouse(
     buttons: Res<ButtonInput<MouseButton>>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    zoom_manager: Res<ZoomManager>,
 ) {
     let (camera, camera_transform) = camera.single();
 
     if buttons.just_pressed(MouseButton::Left) {
         if let Some(position) = q_windows.single().cursor_position() {
             let world_pos = camera.viewport_to_world_2d(camera_transform, position).unwrap();
-            info!("{:?}", world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), STARTING_LONG_LAT));
+            info!("{:?}", world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), STARTING_LONG_LAT, zoom_manager.zoom_level));
         }
     } 
 
@@ -93,6 +83,7 @@ pub fn camera_space_to_lat_long_rect(
     transform: &GlobalTransform,
     window: &Window,
     projection: OrthographicProjection,
+    zoom: u32
 ) -> Option<geo::Rect<f64>> {
     // Get the window size
     let window_width = window.width(); 
@@ -109,8 +100,8 @@ pub fn camera_space_to_lat_long_rect(
     let top = camera_translation.y;
     
     Some(geo::Rect::new(
-        world_mercator_to_lat_lon(left.into(), bottom.into(), STARTING_LONG_LAT),
-        world_mercator_to_lat_lon(right.into(), top.into(), STARTING_LONG_LAT),
+        world_mercator_to_lat_lon(left.into(), bottom.into(), STARTING_LONG_LAT, zoom),
+        world_mercator_to_lat_lon(right.into(), top.into(), STARTING_LONG_LAT, zoom),
     ))
 }
 
@@ -163,19 +154,19 @@ pub fn world_mercator_to_lat_lon(
     x_offset: f64,
     y_offset: f64,
     reference: Coord, // Reference point in lat/lon (degrees)
+    zoom: u32,
 ) -> (f64, f64) {
     // Convert reference point to Web Mercator
     let (ref_x, ref_y) = lat_lon_to_world_mercator(reference.lat, reference.long);
 
     // Calculate meters per pixel (adjust for your tile setup)
-    let meters_per_tile = 20037508.34 * 2.0 / (2.0_f64.powi(STARTING_ZOOM as i32)); // At zoom level N
+    let meters_per_tile = 20037508.34 * 2.0 / (2.0_f64.powi(zoom as i32)); // At zoom level N
     let scale = meters_per_tile / TILE_QUALITY as f64;
 
     // 1213.511890746124
     // Apply offsets with corrected scale
     let global_x = ref_x + (x_offset * scale).round();
     let global_y = ref_y + (y_offset * scale).round();
-    info!("Global x: {}, Global y: {}", (x_offset * scale).round(), (y_offset * scale).round());
     // Inverse Mercator to convert back to lat/lon
     let lon = (global_x / 20037508.34) * 180.0;
     let lat = (global_y / 20037508.34 * 180.0).to_radians();
