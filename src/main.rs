@@ -2,16 +2,18 @@ use std::f64::consts::PI;
 
 use bevy::{prelude::*, core_pipeline::bloom::Bloom, window::PrimaryWindow};
 use bevy_pancam::{DirectionKeys, PanCam, PanCamPlugin};
-use ofm_api::{OfmTiles, display_ofm_tile};
+use debug::DebugPlugin;
+use ofm_api::{OfmTiles};
 use rstar::RTree;
 use tile::Coord;
-use tile_map::{ZoomManager, TileMapPlugin};
+use tile_map::{ChunkManager, TileMapPlugin, ZoomManager};
 
 pub mod ofm_api;
 pub mod tile;
 pub mod tile_map;
+pub mod debug;
 
-pub const STARTING_LONG_LAT: Coord = Coord::new(52.18492, 0.14281721);
+pub const STARTING_LONG_LAT: Coord = Coord::new(52.207588483118826, 0.18674548399234356);
 pub const TILE_QUALITY: i32 = 512;
 
 fn main() {
@@ -24,7 +26,8 @@ fn main() {
         ..Default::default()
     }), PanCamPlugin, TileMapPlugin))
     .add_systems(Startup, setup_camera)
-    .add_systems(Update, (handle_mouse, display_ofm_tile))
+    .add_systems(Update, (handle_mouse))
+    .add_plugins(DebugPlugin)
     .insert_resource(OfmTiles {
         tiles: RTree::new(),
         tiles_to_render: Vec::new(),
@@ -38,15 +41,19 @@ pub fn handle_mouse(
     q_windows: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
     zoom_manager: Res<ZoomManager>,
+    mut chunk_manager: ResMut<ChunkManager>,
 ) {
     let (camera, camera_transform) = camera.single();
 
     if buttons.just_pressed(MouseButton::Left) {
         if let Some(position) = q_windows.single().cursor_position() {
             let world_pos = camera.viewport_to_world_2d(camera_transform, position).unwrap();
-            info!("{:?}", world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), STARTING_LONG_LAT, zoom_manager.zoom_level));
+            info!("{:?}", world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), STARTING_LONG_LAT, zoom_manager.zoom_level, zoom_manager.tile_size, chunk_manager.offset));
         }
-    } 
+    }
+    if buttons.pressed(MouseButton::Middle){
+        chunk_manager.update = true;
+    }
 
 }
 
@@ -67,7 +74,7 @@ pub fn setup_camera(mut commands: Commands) {
             },
             speed: 400., // the speed for the keyboard movement
             enabled: true, // when false, controls are disabled. See toggle example.
-            zoom_to_cursor: true, // whether to zoom towards the mouse or the center of the screen
+            zoom_to_cursor: false, // whether to zoom towards the mouse or the center of the screen
             min_scale: 0.25, // prevent the camera from zooming too far in
             max_scale: f32::INFINITY, // prevent the camera from zooming too far out
             min_x: f32::NEG_INFINITY, // minimum x position of the camera window
@@ -83,7 +90,9 @@ pub fn camera_space_to_lat_long_rect(
     transform: &GlobalTransform,
     window: &Window,
     projection: OrthographicProjection,
-    zoom: u32
+    zoom: u32,
+    quality: f32,
+    offset: Vec2
 ) -> Option<geo::Rect<f64>> {
     // Get the window size
     let window_width = window.width(); 
@@ -100,8 +109,8 @@ pub fn camera_space_to_lat_long_rect(
     let top = camera_translation.y;
     
     Some(geo::Rect::new(
-        world_mercator_to_lat_lon(left.into(), bottom.into(), STARTING_LONG_LAT, zoom),
-        world_mercator_to_lat_lon(right.into(), top.into(), STARTING_LONG_LAT, zoom),
+        world_mercator_to_lat_lon(left.into(), bottom.into(), STARTING_LONG_LAT, zoom, quality, offset),
+        world_mercator_to_lat_lon(right.into(), top.into(), STARTING_LONG_LAT, zoom, quality, offset),
     ))
 }
 
@@ -115,6 +124,7 @@ pub fn world_degreese_to_world_mercator(lon: f32) -> u32 {
 }
 
 pub fn geo_to_tile(lon_deg: f64, lat_deg: f64, zoom: u32) -> (i32, i32) {
+    // We can probably get an off set from this.
     let n = (1 << zoom) as f64;
 
     let x_tile = (n * (lon_deg + 180.0) / 360.0) as i32;
@@ -136,6 +146,14 @@ pub fn tile_to_geo(xtile: i32, ytile: i32, zoom: u32) -> (f64, f64) {
     (lon_deg, lat_rad.to_degrees())
 }
 
+pub fn coord_offset(lon_deg: f64, lat_deg: f64, zoom: u32) -> (f64, f64) {
+    let tile_coords = geo_to_tile(lon_deg, lat_deg, zoom);
+    let off = tile_to_geo(tile_coords.0, tile_coords.1, zoom);
+    info!("{:?}", (lon_deg, lat_deg));
+    (off.0 - lon_deg, off.1 - lat_deg)
+    // TODO: displacement takes place when the original position is not the top left corner of the tile, so we need to have the origin to change when we zoom in and out.
+}
+
 pub fn lat_lon_to_tile_coords(lat: f32, lon: f32, zoom: i32) -> (i32, i32) {
     let x = ((lon + 180.0) / 360.0 * (2_i32.pow(zoom as u32) as f32)).floor() as i32;
     let y = ((1.0 - (lat.to_radians().tan() + 1.0 / lat.to_radians().cos()).ln() / std::f32::consts::PI) / 2.0 * (2_i32.pow(zoom as u32) as f32)).floor() as i32;
@@ -153,26 +171,30 @@ pub fn tile_coords_to_lat_lon(x: i32, y: i32, zoom: i32) -> (f32, f32) {
 pub fn world_mercator_to_lat_lon(
     x_offset: f64,
     y_offset: f64,
-    reference: Coord, // Reference point in lat/lon (degrees)
+    reference: Coord, 
     zoom: u32,
+    quality: f32,
+    closest_offset: Vec2
 ) -> (f64, f64) {
     // Convert reference point to Web Mercator
     let (ref_x, ref_y) = lat_lon_to_world_mercator(reference.lat, reference.long);
+    let (off_x, off_y) = lat_lon_to_world_mercator(closest_offset.y, closest_offset.x);
 
     // Calculate meters per pixel (adjust for your tile setup)
     let meters_per_tile = 20037508.34 * 2.0 / (2.0_f64.powi(zoom as i32)); // At zoom level N
-    let scale = meters_per_tile / TILE_QUALITY as f64;
+    let scale = meters_per_tile / quality as f64;
 
-    // 1213.511890746124
     // Apply offsets with corrected scale
-    let global_x = ref_x + (x_offset * scale).round();
-    let global_y = ref_y + (y_offset * scale).round();
+    let global_x = ref_x + (x_offset * scale);
+    let global_y = ref_y + (y_offset * scale);
+ 
+
     // Inverse Mercator to convert back to lat/lon
     let lon = (global_x / 20037508.34) * 180.0;
     let lat = (global_y / 20037508.34 * 180.0).to_radians();
     let lat = 2.0 * lat.exp().atan() - std::f64::consts::FRAC_PI_2;
     let lat = lat.to_degrees();
-
+   
     (lat, lon)
 }
 
@@ -180,14 +202,7 @@ pub fn world_mercator_to_lat_lon(
 fn lat_lon_to_world_mercator(lat: f32, lon: f32) -> (f64, f64) {
     let lon_rad = lon.to_radians() as f64;
     let lat_rad = lat.to_radians() as f64;
-    
-    // Earth's circumference (meters) for Web Mercator (WGS84)
-    const EARTH_RADIUS: f64 = 20037508.34;
-
-    let x = lon_rad * EARTH_RADIUS / std::f64::consts::PI;
-    
-    // CORRECTED Y formula: ln(tan(π/4 + φ/2)) * radius
-    let y = (std::f64::consts::FRAC_PI_4 + lat_rad / 2.0).tan().ln() * EARTH_RADIUS / std::f64::consts::PI;
-
+    let x = lon_rad * 20037508.34 / std::f64::consts::PI;
+    let y = (lat_rad.tan().asinh() * 20037508.34 / std::f64::consts::PI);
     (x, y)
 }

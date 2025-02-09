@@ -5,7 +5,7 @@ use bevy::{prelude::*, utils::{HashMap, HashSet}};
 use bevy_ecs_tilemap::{map::{TilemapGridSize, TilemapId, TilemapTexture, TilemapTileSize}, tiles::{TileBundle, TilePos, TileStorage}, TilemapBundle, TilemapPlugin};
 use crossbeam_channel::{bounded, Receiver, Sender};
 
-use crate::{geo_to_tile, ofm_api::{buffer_to_bevy_image, get_ofm_data}, world_mercator_to_lat_lon, STARTING_LONG_LAT, TILE_QUALITY};
+use crate::{coord_offset, geo_to_tile, ofm_api::{buffer_to_bevy_image, get_ofm_data}, world_mercator_to_lat_lon, STARTING_LONG_LAT, TILE_QUALITY};
 
 // For this example, don't choose too large a chunk size.
 const CHUNK_SIZE: UVec2 = UVec2 { x: 1, y: 1 };
@@ -40,17 +40,44 @@ impl Default for ZoomManager {
             zoom_level: 14,
             last_zoom_level: 0,
             last_projection_level: 0.0,
-            tile_size: 512.0
+            tile_size: TILE_QUALITY as f32
         }
     }
 }
 
-#[derive(Default, Debug, Resource)]
-struct ChunkManager {
+#[derive(Debug, Resource)]
+pub struct ChunkManager {
     pub spawned_chunks: HashSet<IVec2>,
     pub to_spawn_chunks: HashMap<IVec2, Vec<u8>>, // Store raw image data
+    pub offset: Vec2,
+    pub update: bool, // Store raw image data
 }
 
+impl Default for ChunkManager {
+    fn default() -> Self {
+        Self {
+            spawned_chunks: HashSet::default(),
+            to_spawn_chunks: HashMap::default(),
+            offset: Vec2::new(0., 0.),
+            update: true,
+        }
+    }
+}
+
+// This causes an annoying move which must be fixed, then it will work a lot better, then we can start working on other features.
+/*
+This is esseitnally the same place. Look at how mmuch it moves
+I think this comes from the fact that Im putting it into a grid, and the grid may be displased. Infact the lat and long are not accurate.
+Im a little bit lost here. I think that this issue comes from the fact that the tiles snap onto the grid.
+We probably want to add a section which is where the offset comes from.
+2025-02-08T21:21:32.503268Z  INFO bevy_ofm_viewer: (52.188956676958675, 0.14935694976164401)
+2025-02-08T21:21:36.106325Z  INFO bevy_ofm_viewer: (52.18216577373214, 0.16036131199363995)
+2025-02-08T21:21:41.694419Z  INFO bevy_ofm_viewer: (52.17539586891242, 0.1713836405313208)
+
+52.17654007829139, 0.14520868302901419
+52.18081628177534, 0.14514385107853697
+
+*/
 fn detect_zoom_level(
     mut chunk_manager: ResMut<ChunkManager>,
     mut zoom_manager: ResMut<ZoomManager>,
@@ -60,7 +87,6 @@ fn detect_zoom_level(
 ) {
     if let Ok(mut projection) = ortho_projection_query.get_single_mut() {
         if projection.scale != zoom_manager.last_projection_level {
-            info!("Zoom: {}", zoom_manager.zoom_level);
             zoom_manager.last_projection_level = projection.scale;
             if projection.scale > 2.0 && projection.scale != 0. && zoom_manager.zoom_level > 3 {
                 zoom_manager.last_zoom_level = zoom_manager.zoom_level;
@@ -77,6 +103,7 @@ fn detect_zoom_level(
                 chunk_manager.to_spawn_chunks.clear();
                 projection.scale = 1.0;
             }
+            chunk_manager.update = true;
         }
     }
 }
@@ -88,7 +115,7 @@ pub struct ChunkReceiver(Receiver<(IVec2, Vec<u8>)>); // Use Vec<u8> for raw ima
 pub struct ChunkSender(Sender<(IVec2, Vec<u8>)>);
 
 #[derive(Component)]
-struct TileMarker;
+pub struct TileMarker;
 
 fn spawn_chunk(
     commands: &mut Commands,
@@ -152,31 +179,38 @@ fn chunk_pos_to_world_pos(chunk_pos: IVec2, tile_size: f32) -> Vec2 {
 fn spawn_chunks_around_camera(
     camera_query: Query<&Transform, With<Camera>>,
     chunk_sender: Res<ChunkSender>,  // Use the stored sender
-    chunk_manager: ResMut<ChunkManager>,
+    mut chunk_manager: ResMut<ChunkManager>,
     zoom_manager: Res<ZoomManager>,
 ) {
-    for transform in camera_query.iter() {
-        let camera_chunk_pos = camera_pos_to_chunk_pos(&transform.translation.xy(), zoom_manager.tile_size);
-        let range = 2;
+    if chunk_manager.update {
+        chunk_manager.update = false;
+        for transform in camera_query.iter() {
+            let camera_chunk_pos = camera_pos_to_chunk_pos(&transform.translation.xy(), zoom_manager.tile_size);
+            let range = 2;
 
-        for y in (camera_chunk_pos.y - range)..=(camera_chunk_pos.y + range) {
-            for x in (camera_chunk_pos.x - range)..=(camera_chunk_pos.x + range) {
-                let chunk_pos = IVec2::new(x, y);
-                if !chunk_manager.spawned_chunks.contains(&chunk_pos) {
-                    let tx = chunk_sender.clone(); // Clone existing sender
-                    let zoom_manager = zoom_manager.clone();
-                    thread::spawn(move || {
+            for y in (camera_chunk_pos.y - range)..=(camera_chunk_pos.y + range) {
+                for x in (camera_chunk_pos.x - range)..=(camera_chunk_pos.x + range) {
+                    let chunk_pos = IVec2::new(x, y);
+                    if !chunk_manager.spawned_chunks.contains(&chunk_pos) {
+                        let tx = chunk_sender.clone(); // Clone existing sender
+                        let zoom_manager = zoom_manager.clone();
                         let world_pos = chunk_pos_to_world_pos(chunk_pos, zoom_manager.tile_size);
-                        let position = world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), STARTING_LONG_LAT, zoom_manager.zoom_level);
-                        let tile_coords = geo_to_tile(position.1, position.0, zoom_manager.zoom_level);
-                        let tile_key = (tile_coords.0 as i64, tile_coords.1 as i64, zoom_manager.zoom_level);
+                        let position = world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), STARTING_LONG_LAT.into(), zoom_manager.zoom_level.into(), zoom_manager.tile_size.into(), Vec2::new(0., 0.));
+                        let offset = coord_offset(position.1, position.0, zoom_manager.zoom_level);
 
-                        let tile_image = get_ofm_data(tile_key.0 as u64, tile_key.1 as u64, tile_key.2 as u64, zoom_manager.tile_size as u32);
-                        if let Err(e) = tx.send((chunk_pos, tile_image)) {
-                            eprintln!("Failed to send chunk data: {:?}", e);
-                        } else {
-                        }
-                    });
+                        thread::spawn(move || {
+                            let tile_coords = geo_to_tile(position.1, position.0, zoom_manager.zoom_level);
+                            let tile_key = (tile_coords.0 as i64, tile_coords.1 as i64, zoom_manager.zoom_level);
+    
+                            let tile_image = get_ofm_data(tile_key.0 as u64, tile_key.1 as u64, tile_key.2 as u64, zoom_manager.tile_size as u32);
+                            if let Err(e) = tx.send((chunk_pos, tile_image)) {
+                                eprintln!("Failed to send chunk data: {:?}", e);
+                            }
+                        });
+
+                        chunk_manager.offset = Vec2::new(offset.0 as f32, offset.1 as f32);
+                        chunk_manager.spawned_chunks.insert(chunk_pos);
+                    }
                 }
             }
         }
@@ -226,8 +260,7 @@ fn despawn_outofrange_chunks(
         for (entity, chunk_transform, _) in chunks_query.iter() {
             let chunk_pos = chunk_transform.translation.xy();
             let distance = camera_transform.translation.xy().distance(chunk_pos);
-            if distance > 256. * 10.{
-                // info!("Despawning chunk at {:?}", chunk_pos);
+            if distance > zoom_manager.tile_size * 10.{
                 let x = (chunk_pos.x / (CHUNK_SIZE.x as f32 * zoom_manager.tile_size)).floor() as i32;
                 let y = (chunk_pos.y / (CHUNK_SIZE.y as f32 * zoom_manager.tile_size)).floor() as i32;
                 chunk_manager.spawned_chunks.remove(&IVec2::new(x, y));
@@ -242,7 +275,6 @@ fn despawn_all_chunks(
     chunks_query: Query<(Entity, &TileMarker)>,
 ) {
     for (entity, _) in chunks_query.iter() {
-            // info!("Despawning chunk at {:?}", chunk_pos);
             commands.entity(entity).despawn_recursive();
     }
 }

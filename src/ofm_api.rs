@@ -2,8 +2,9 @@ use std::{fs, path::Path};
 
 use bevy::{asset::{Assets, RenderAssetUsages}, ecs::system::{Commands, Res, ResMut, Resource}, image::Image, log::info, math::Vec2, render::render_resource::{Extent3d, TextureDimension, TextureFormat}, sprite::Sprite, transform::components::Transform};
 use mvt_reader::Reader;
-use raqote::{AntialiasMode, DrawOptions, DrawTarget, PathBuilder, SolidSource, Source, StrokeStyle};
+use raqote::{AntialiasMode, DrawOptions, DrawTarget, PathBuilder, Point, SolidSource, Source, StrokeStyle};
 use rstar::{RTree, RTreeObject, AABB};
+use font_kit::{family_name::FamilyName, loaders::freetype::Font, properties::{Properties, Weight}, source::SystemSource};
 
 use crate::{level_to_tile_width, tile::Coord, tile_map::ZoomManager, world_mercator_to_lat_lon, STARTING_LONG_LAT, TILE_QUALITY};
 
@@ -56,33 +57,14 @@ pub fn tile_width_meters(zoom: u32) -> f64 {
     earth_circumference_meters / num_tiles
 }
 
-pub fn display_ofm_tile(
-    mut overpass_settings: ResMut<OfmTiles>,
-    mut images: ResMut<Assets<Image>>,
-    zoom_manager: Res<ZoomManager>,
-    mut commands: Commands,
-) {
-    for tile in overpass_settings.tiles_to_render.iter() {
-        let image_handle = images.add(tile.image.clone());
-        let coords = world_mercator_to_lat_lon(tile.tile_location.lat.into(), tile.tile_location.long.into(), STARTING_LONG_LAT, zoom_manager.zoom_level);
-        let mut img = Sprite::from_image(image_handle);
-        img.custom_size = Some(Vec2::new(2080., 2080.));
-        commands.spawn((
-            img,
-            Transform::from_xyz(coords.0 as f32, coords.1 as f32, 0.),
-        ));
-    }
-    overpass_settings.tiles_to_render.clear();
-}
-
 pub fn get_ofm_image(x: u64, y: u64, zoom: u64, tile_size: u32) -> Image {
     let data = send_ofm_request(x, y, zoom);
-    buffer_to_bevy_image(ofm_to_data_image(data, tile_size, zoom as u32), tile_size)
+    buffer_to_bevy_image(ofm_to_data_image(data, tile_size, zoom as u32, x, y), tile_size)
 }
 
 pub fn get_ofm_data(x: u64, y: u64, zoom: u64, tile_size: u32) -> Vec<u8> {
     let data = send_ofm_request(x, y, zoom);
-    ofm_to_data_image(data, tile_size, zoom as u32)
+    ofm_to_data_image(data, tile_size, zoom as u32, x, y)
 }
 
 pub fn buffer_to_bevy_image(data: Vec<u8>, tile_size: u32) -> Image {
@@ -134,19 +116,43 @@ fn send_ofm_request(x: u64, y: u64, zoom: u64) -> Vec<u8> {
 }
 
 /// This converts it to an image which is as many meters as the tile width This would be AAAMAAZZZING to multithread
-fn ofm_to_data_image(data: Vec<u8>, size: u32, zoom: u32) -> Vec<u8> {
+fn ofm_to_data_image(data: Vec<u8>, size: u32, zoom: u32, x: u64, y: u64) -> Vec<u8> {
     let tile = Reader::new(data).unwrap();
     //let size_multiplyer = TILE_QUALITY as u32 / size ;
     let mut dt = DrawTarget::new(size as i32 , size as i32);
     let mut pb: PathBuilder = PathBuilder::new();
+    pb.move_to(0.0, 0.0);
+    pb.line_to(size as f32, 0.0);
+    pb.line_to(size as f32, size as f32);
+    pb.line_to(0.0, size as f32);
+    pb.line_to(0.0, 0.0);
+    let path = pb.finish();
 
-    // The value 0.56.... Is to account for tile overflows
-    // let scale = 0.597014925373 ;
-    info!("{}", size);
+    let stroke_style = StrokeStyle {
+        cap: raqote::LineCap::Round,
+        join: raqote::LineJoin::Round,
+        width: 5.,
+        miter_limit: 10.0,
+        dash_array: vec![0.,0.,1.],
+        dash_offset: 1.0,
+    };
+    dt.stroke(
+        &path,
+    &Source::Solid(SolidSource {
+            r: 0xff,
+            g: 0xff,
+            b: 0xff,
+            a: 0xff,
+        }),        
+        
+        &stroke_style,
+        &DrawOptions {
+            antialias: AntialiasMode::Gray,
+            ..Default::default()
+        },
+    );
+
     let scale = (size as f32 / tile_width_meters(14.try_into().unwrap()).round() as f32) * 0.597014925373;
-
-    // at 13 it is 4892
-    info!("{}", scale);
     dt.set_transform(&raqote::Transform::scale(scale, scale));
 
     // Iterate over layers and features]
