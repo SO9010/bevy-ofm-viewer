@@ -3,7 +3,7 @@ use std::f64::consts::PI;
 use bevy::{prelude::*, core_pipeline::bloom::Bloom, window::PrimaryWindow};
 use bevy_pancam::{DirectionKeys, PanCam, PanCamPlugin};
 use debug::DebugPlugin;
-use ofm_api::{OfmTiles};
+use ofm_api::OfmTiles;
 use rstar::RTree;
 use tile::Coord;
 use tile_map::{ChunkManager, TileMapPlugin, ZoomManager};
@@ -48,7 +48,7 @@ pub fn handle_mouse(
     if buttons.just_pressed(MouseButton::Left) {
         if let Some(position) = q_windows.single().cursor_position() {
             let world_pos = camera.viewport_to_world_2d(camera_transform, position).unwrap();
-            info!("{:?}", world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), STARTING_LONG_LAT, zoom_manager.zoom_level, zoom_manager.tile_size, chunk_manager.offset));
+            info!("{:?}", world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size, chunk_manager.offset));
         }
     }
     if buttons.pressed(MouseButton::Middle){
@@ -92,6 +92,7 @@ pub fn camera_space_to_lat_long_rect(
     projection: OrthographicProjection,
     zoom: u32,
     quality: f32,
+    reference: Coord,
     offset: Vec2
 ) -> Option<geo::Rect<f64>> {
     // Get the window size
@@ -109,13 +110,13 @@ pub fn camera_space_to_lat_long_rect(
     let top = camera_translation.y;
     
     Some(geo::Rect::new(
-        world_mercator_to_lat_lon(left.into(), bottom.into(), STARTING_LONG_LAT, zoom, quality, offset),
-        world_mercator_to_lat_lon(right.into(), top.into(), STARTING_LONG_LAT, zoom, quality, offset),
+        world_mercator_to_lat_lon(left.into(), bottom.into(), reference, zoom, quality, offset),
+        world_mercator_to_lat_lon(right.into(), top.into(), reference, zoom, quality, offset),
     ))
 }
 
 
-pub fn level_to_tile_width(level: i32) -> f32 {
+pub fn level_to_tile_width(level: u32) -> f32 {
     360.0 / (2_i32.pow(level as u32) as f32)
 }
 
@@ -140,7 +141,6 @@ pub fn tile_to_geo(xtile: i32, ytile: i32, zoom: u32) -> (f64, f64) {
     let n = 2.0f64.powi(zoom as i32);
     let lon_deg = xtile as f64 / n * 360.0 - 180.0;
     
-    // CORRECTED LATITUDE CALCULATION
     let lat_rad = (PI * (1.0 - 2.0 * ytile as f64  / n)).sinh().atan();
     
     (lon_deg, lat_rad.to_degrees())
@@ -149,9 +149,7 @@ pub fn tile_to_geo(xtile: i32, ytile: i32, zoom: u32) -> (f64, f64) {
 pub fn coord_offset(lon_deg: f64, lat_deg: f64, zoom: u32) -> (f64, f64) {
     let tile_coords = geo_to_tile(lon_deg, lat_deg, zoom);
     let off = tile_to_geo(tile_coords.0, tile_coords.1, zoom);
-    info!("{:?}", (lon_deg, lat_deg));
     (off.0 - lon_deg, off.1 - lat_deg)
-    // TODO: displacement takes place when the original position is not the top left corner of the tile, so we need to have the origin to change when we zoom in and out.
 }
 
 pub fn lat_lon_to_tile_coords(lat: f32, lon: f32, zoom: i32) -> (i32, i32) {

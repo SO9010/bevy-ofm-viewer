@@ -19,7 +19,7 @@ pub struct Tile {
     pub name: String,
     pub image: Image,
     pub tile_location: Coord,
-    pub zoom: i32,
+    pub zoom: u32,
 } 
 
 impl PartialEq for Tile {
@@ -41,7 +41,7 @@ impl RTreeObject for Tile {
     }
 }
 impl Tile {
-    pub fn new(name: String, image: Image, tile_location: Coord, zoom: i32) -> Self {
+    pub fn new(name: String, image: Image, tile_location: Coord, zoom: u32) -> Self {
         Self {
             name,
             image,
@@ -120,38 +120,41 @@ fn ofm_to_data_image(data: Vec<u8>, size: u32, zoom: u32, x: u64, y: u64) -> Vec
     let tile = Reader::new(data).unwrap();
     //let size_multiplyer = TILE_QUALITY as u32 / size ;
     let mut dt = DrawTarget::new(size as i32 , size as i32);
-    let mut pb: PathBuilder = PathBuilder::new();
-    pb.move_to(0.0, 0.0);
-    pb.line_to(size as f32, 0.0);
-    pb.line_to(size as f32, size as f32);
-    pb.line_to(0.0, size as f32);
-    pb.line_to(0.0, 0.0);
-    let path = pb.finish();
 
-    let stroke_style = StrokeStyle {
-        cap: raqote::LineCap::Round,
-        join: raqote::LineJoin::Round,
-        width: 5.,
-        miter_limit: 10.0,
-        dash_array: vec![0.,0.,1.],
-        dash_offset: 1.0,
-    };
-    dt.stroke(
-        &path,
-    &Source::Solid(SolidSource {
-            r: 0xff,
-            g: 0xff,
-            b: 0xff,
-            a: 0xff,
-        }),        
-        
-        &stroke_style,
-        &DrawOptions {
-            antialias: AntialiasMode::Gray,
-            ..Default::default()
-        },
-    );
-
+    if cfg!(debug_assertions) {
+        let mut pb: PathBuilder = PathBuilder::new();
+        pb.move_to(0.0, 0.0);
+        pb.line_to(size as f32, 0.0);
+        pb.line_to(size as f32, size as f32);
+        pb.line_to(0.0, size as f32);
+        pb.line_to(0.0, 0.0);
+        let path = pb.finish();
+    
+        let stroke_style = StrokeStyle {
+            cap: raqote::LineCap::Round,
+            join: raqote::LineJoin::Round,
+            width: 1.0,
+            miter_limit: 10.0,
+            dash_array: vec![5.0, 10.0], // 5 units of dash followed by 3 units of gap
+            dash_offset: 0.0, // Start at the beginning of the dash pattern
+        };
+        dt.stroke(
+            &path,
+        &Source::Solid(SolidSource {
+                r: 0xff,
+                g: 0xff,
+                b: 0xff,
+                a: 0xff,
+            }),        
+            
+            &stroke_style,
+            &DrawOptions {
+                antialias: AntialiasMode::Gray,
+                ..Default::default()
+            },
+        );
+    }
+    
     let scale = (size as f32 / tile_width_meters(14.try_into().unwrap()).round() as f32) * 0.597014925373;
     dt.set_transform(&raqote::Transform::scale(scale, scale));
 

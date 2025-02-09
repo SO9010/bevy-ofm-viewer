@@ -2,8 +2,6 @@ use bevy::{
     color::palettes::css::GOLD, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, prelude::*
 };
 
-use crate::{camera_space_to_lat_long_rect, tile_map::{TileMarker, ZoomManager}};
-
 pub struct DebugPlugin;
 
 impl Plugin for DebugPlugin {

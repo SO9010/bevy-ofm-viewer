@@ -5,7 +5,7 @@ use bevy::{prelude::*, utils::{HashMap, HashSet}};
 use bevy_ecs_tilemap::{map::{TilemapGridSize, TilemapId, TilemapTexture, TilemapTileSize}, tiles::{TileBundle, TilePos, TileStorage}, TilemapBundle, TilemapPlugin};
 use crossbeam_channel::{bounded, Receiver, Sender};
 
-use crate::{coord_offset, geo_to_tile, ofm_api::{buffer_to_bevy_image, get_ofm_data}, world_mercator_to_lat_lon, STARTING_LONG_LAT, TILE_QUALITY};
+use crate::{coord_offset, geo_to_tile, level_to_tile_width, ofm_api::{buffer_to_bevy_image, get_ofm_data}, tile::Coord, world_mercator_to_lat_lon, STARTING_LONG_LAT, TILE_QUALITY};
 
 // For this example, don't choose too large a chunk size.
 const CHUNK_SIZE: UVec2 = UVec2 { x: 1, y: 1 };
@@ -51,6 +51,7 @@ pub struct ChunkManager {
     pub to_spawn_chunks: HashMap<IVec2, Vec<u8>>, // Store raw image data
     pub offset: Vec2,
     pub update: bool, // Store raw image data
+    pub refrence_long_lat: Coord,
 }
 
 impl Default for ChunkManager {
@@ -60,50 +61,44 @@ impl Default for ChunkManager {
             to_spawn_chunks: HashMap::default(),
             offset: Vec2::new(0., 0.),
             update: true,
+            refrence_long_lat: STARTING_LONG_LAT,
         }
     }
 }
 
-// This causes an annoying move which must be fixed, then it will work a lot better, then we can start working on other features.
-/*
-This is esseitnally the same place. Look at how mmuch it moves
-I think this comes from the fact that Im putting it into a grid, and the grid may be displased. Infact the lat and long are not accurate.
-Im a little bit lost here. I think that this issue comes from the fact that the tiles snap onto the grid.
-We probably want to add a section which is where the offset comes from.
-2025-02-08T21:21:32.503268Z  INFO bevy_ofm_viewer: (52.188956676958675, 0.14935694976164401)
-2025-02-08T21:21:36.106325Z  INFO bevy_ofm_viewer: (52.18216577373214, 0.16036131199363995)
-2025-02-08T21:21:41.694419Z  INFO bevy_ofm_viewer: (52.17539586891242, 0.1713836405313208)
-
-52.17654007829139, 0.14520868302901419
-52.18081628177534, 0.14514385107853697
-
-*/
 fn detect_zoom_level(
     mut chunk_manager: ResMut<ChunkManager>,
     mut zoom_manager: ResMut<ZoomManager>,
     mut ortho_projection_query: Query<&mut OrthographicProjection, With<Camera>>,
     chunk_query: Query<(Entity, &TileMarker)>,
+    mut camera_query: Query<&mut Transform, With<Camera>>,
     mut commands: Commands,
 ) {
     if let Ok(mut projection) = ortho_projection_query.get_single_mut() {
-        if projection.scale != zoom_manager.last_projection_level {
-            zoom_manager.last_projection_level = projection.scale;
-            if projection.scale > 2.0 && projection.scale != 0. && zoom_manager.zoom_level > 3 {
-                zoom_manager.last_zoom_level = zoom_manager.zoom_level;
-                zoom_manager.zoom_level -= 1;
-                despawn_all_chunks(commands, chunk_query);
-                chunk_manager.spawned_chunks.clear();
-                chunk_manager.to_spawn_chunks.clear();
-                projection.scale = 1.0;
-            } else if projection.scale < 0.5 && projection.scale != 0. && zoom_manager.zoom_level < 14 {
-                zoom_manager.last_zoom_level = zoom_manager.zoom_level;
-                zoom_manager.zoom_level += 1;
-                despawn_all_chunks(commands, chunk_query);
-                chunk_manager.spawned_chunks.clear();
-                chunk_manager.to_spawn_chunks.clear();
-                projection.scale = 1.0;
+        if let Ok(mut camera) = camera_query.get_single_mut() {
+            if projection.scale != zoom_manager.last_projection_level {
+                zoom_manager.last_projection_level = projection.scale;
+                if projection.scale > 2.0 && projection.scale != 0. && zoom_manager.zoom_level > 3 {
+                    zoom_manager.last_zoom_level = zoom_manager.zoom_level;
+                    zoom_manager.zoom_level -= 1;
+                    despawn_all_chunks(commands, chunk_query);
+                    chunk_manager.spawned_chunks.clear();
+                    chunk_manager.to_spawn_chunks.clear();
+                    chunk_manager.refrence_long_lat += Coord {lat: level_to_tile_width(zoom_manager.last_zoom_level) /2., long: level_to_tile_width(zoom_manager.last_zoom_level) /2.};
+                    camera.translation = Vec3::new(0., 0., 1.);
+                    projection.scale = 1.0;
+                } else if projection.scale < 0.5 && projection.scale != 0. && zoom_manager.zoom_level < 14 {
+                    zoom_manager.last_zoom_level = zoom_manager.zoom_level;
+                    zoom_manager.zoom_level += 1;
+                    despawn_all_chunks(commands, chunk_query);
+                    chunk_manager.spawned_chunks.clear();
+                    chunk_manager.to_spawn_chunks.clear();
+                    chunk_manager.refrence_long_lat -= Coord {lat: level_to_tile_width(zoom_manager.zoom_level)/2., long: level_to_tile_width(zoom_manager.zoom_level)/2.};
+                    camera.translation = Vec3::new(0., 0., 1.);
+                    projection.scale = 1.0;
+                }
+                chunk_manager.update = true;
             }
-            chunk_manager.update = true;
         }
     }
 }
@@ -195,7 +190,7 @@ fn spawn_chunks_around_camera(
                         let tx = chunk_sender.clone(); // Clone existing sender
                         let zoom_manager = zoom_manager.clone();
                         let world_pos = chunk_pos_to_world_pos(chunk_pos, zoom_manager.tile_size);
-                        let position = world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), STARTING_LONG_LAT.into(), zoom_manager.zoom_level.into(), zoom_manager.tile_size.into(), Vec2::new(0., 0.));
+                        let position = world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), chunk_manager.refrence_long_lat.into(), zoom_manager.zoom_level.into(), zoom_manager.tile_size.into(), Vec2::new(0., 0.));
                         let offset = coord_offset(position.1, position.0, zoom_manager.zoom_level);
 
                         thread::spawn(move || {

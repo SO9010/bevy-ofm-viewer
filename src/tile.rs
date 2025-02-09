@@ -1,3 +1,5 @@
+use std::ops::{AddAssign, SubAssign};
+
 use bevy::math::Vec2;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -22,6 +24,20 @@ impl Coord {
         let x = ((self.long + 180.0) / 360.0 * (2_i32.pow(zoom) as f32)).floor() as i32;
         let y = ((1.0 - (self.lat.to_radians().tan() + 1.0 / self.lat.to_radians().cos()).ln() / std::f32::consts::PI) / 2.0 * (2_i32.pow(zoom) as f32)).floor() as i32;
         (x as u32, y as u32)
+    }
+}
+
+impl SubAssign for Coord {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.lat -= rhs.lat;
+        self.long -= rhs.long;
+    }
+}
+
+impl AddAssign for Coord {
+    fn add_assign(&mut self, rhs: Self) {
+        self.lat += rhs.lat;
+        self.long += rhs.long;
     }
 }
 
