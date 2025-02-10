@@ -1,4 +1,4 @@
-use std::{default, thread};
+use std::thread;
 
 // Thank you for the example: https://github.com/StarArawn/bevy_ecs_tilemap/blob/main/examples/chunking.rs
 use bevy::{prelude::*, utils::{HashMap, HashSet}};
@@ -190,7 +190,7 @@ fn spawn_chunks_around_camera(
                         let tx = chunk_sender.clone(); // Clone existing sender
                         let zoom_manager = zoom_manager.clone();
                         let world_pos = chunk_pos_to_world_pos(chunk_pos, zoom_manager.tile_size);
-                        let position = world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), chunk_manager.refrence_long_lat.into(), zoom_manager.zoom_level.into(), zoom_manager.tile_size.into(), Vec2::new(0., 0.));
+                        let position = world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), chunk_manager.refrence_long_lat.into(), zoom_manager.zoom_level.into(), zoom_manager.tile_size.into());
                         let offset = coord_offset(position.1, position.0, zoom_manager.zoom_level);
 
                         thread::spawn(move || {

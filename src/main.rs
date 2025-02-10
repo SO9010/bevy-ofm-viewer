@@ -48,7 +48,7 @@ pub fn handle_mouse(
     if buttons.just_pressed(MouseButton::Left) {
         if let Some(position) = q_windows.single().cursor_position() {
             let world_pos = camera.viewport_to_world_2d(camera_transform, position).unwrap();
-            info!("{:?}", world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size, chunk_manager.offset));
+            info!("{:?}", world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size));
         }
     }
     if buttons.pressed(MouseButton::Middle){
@@ -110,8 +110,8 @@ pub fn camera_space_to_lat_long_rect(
     let top = camera_translation.y;
     
     Some(geo::Rect::new(
-        world_mercator_to_lat_lon(left.into(), bottom.into(), reference, zoom, quality, offset),
-        world_mercator_to_lat_lon(right.into(), top.into(), reference, zoom, quality, offset),
+        world_mercator_to_lat_lon(left.into(), bottom.into(), reference, zoom, quality),
+        world_mercator_to_lat_lon(right.into(), top.into(), reference, zoom, quality),
     ))
 }
 
@@ -172,11 +172,9 @@ pub fn world_mercator_to_lat_lon(
     reference: Coord, 
     zoom: u32,
     quality: f32,
-    closest_offset: Vec2
 ) -> (f64, f64) {
     // Convert reference point to Web Mercator
     let (ref_x, ref_y) = lat_lon_to_world_mercator(reference.lat, reference.long);
-    let (off_x, off_y) = lat_lon_to_world_mercator(closest_offset.y, closest_offset.x);
 
     // Calculate meters per pixel (adjust for your tile setup)
     let meters_per_tile = 20037508.34 * 2.0 / (2.0_f64.powi(zoom as i32)); // At zoom level N

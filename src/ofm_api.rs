@@ -1,12 +1,11 @@
 use std::{fs, path::Path};
 
-use bevy::{asset::{Assets, RenderAssetUsages}, ecs::system::{Commands, Res, ResMut, Resource}, image::Image, log::info, math::Vec2, render::render_resource::{Extent3d, TextureDimension, TextureFormat}, sprite::Sprite, transform::components::Transform};
+use bevy::{asset::RenderAssetUsages, ecs::system::Resource, image::Image, render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
 use mvt_reader::Reader;
-use raqote::{AntialiasMode, DrawOptions, DrawTarget, PathBuilder, Point, SolidSource, Source, StrokeStyle};
+use raqote::{AntialiasMode, DrawOptions, DrawTarget, PathBuilder, SolidSource, Source, StrokeStyle};
 use rstar::{RTree, RTreeObject, AABB};
-use font_kit::{family_name::FamilyName, loaders::freetype::Font, properties::{Properties, Weight}, source::SystemSource};
 
-use crate::{level_to_tile_width, tile::Coord, tile_map::ZoomManager, world_mercator_to_lat_lon, STARTING_LONG_LAT, TILE_QUALITY};
+use crate::{level_to_tile_width, tile::Coord};
 
 #[derive(Resource, Clone)]
 pub struct OfmTiles {
