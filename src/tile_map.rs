@@ -5,7 +5,7 @@ use bevy::{prelude::*, utils::{HashMap, HashSet}};
 use bevy_ecs_tilemap::{map::{TilemapGridSize, TilemapId, TilemapTexture, TilemapTileSize}, tiles::{TileBundle, TilePos, TileStorage}, TilemapBundle, TilemapPlugin};
 use crossbeam_channel::{bounded, Receiver, Sender};
 
-use crate::{coord_offset, geo_to_tile, level_to_tile_width, ofm_api::{buffer_to_bevy_image, get_ofm_data}, tile::Coord, world_mercator_to_lat_lon, STARTING_LONG_LAT, TILE_QUALITY};
+use crate::{ofm_api::{buffer_to_bevy_image, get_ofm_data}, tile::{world_mercator_to_lat_lon, Coord}, STARTING_DISPLACEMENT, STARTING_LONG_LAT, TILE_QUALITY};
 
 // For this example, don't choose too large a chunk size.
 const CHUNK_SIZE: UVec2 = UVec2 { x: 1, y: 1 };
@@ -21,7 +21,7 @@ impl Plugin for TileMapPlugin {
             .insert_resource(ChunkManager::default())
             .insert_resource(ZoomManager::default())
             .add_systems(Update, (spawn_chunks_around_camera, spawn_to_needed_chunks))
-            .add_systems(Update, (despawn_outofrange_chunks, detect_zoom_level))
+            .add_systems(Update, detect_zoom_level)
             .add_systems(FixedUpdate, (despawn_outofrange_chunks, read_map_receiver));
     }
 }
@@ -49,7 +49,6 @@ impl Default for ZoomManager {
 pub struct ChunkManager {
     pub spawned_chunks: HashSet<IVec2>,
     pub to_spawn_chunks: HashMap<IVec2, Vec<u8>>, // Store raw image data
-    pub offset: Vec2,
     pub update: bool, // Store raw image data
     pub refrence_long_lat: Coord,
 }
@@ -59,9 +58,21 @@ impl Default for ChunkManager {
         Self {
             spawned_chunks: HashSet::default(),
             to_spawn_chunks: HashMap::default(),
-            offset: Vec2::new(0., 0.),
             update: true,
             refrence_long_lat: STARTING_LONG_LAT,
+        }
+    }
+}
+
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct Location {
+    pub location: Coord,
+}
+
+impl Default for Location {
+    fn default() -> Self {
+        Self {
+            location: STARTING_DISPLACEMENT,
         }
     }
 }
@@ -72,7 +83,8 @@ fn detect_zoom_level(
     mut ortho_projection_query: Query<&mut OrthographicProjection, With<Camera>>,
     chunk_query: Query<(Entity, &TileMarker)>,
     mut camera_query: Query<&mut Transform, With<Camera>>,
-    mut commands: Commands,
+    commands: Commands,
+    location_manager: ResMut<Location>,
 ) {
     if let Ok(mut projection) = ortho_projection_query.get_single_mut() {
         if let Ok(mut camera) = camera_query.get_single_mut() {
@@ -81,21 +93,31 @@ fn detect_zoom_level(
                 if projection.scale > 1. && projection.scale != 0. && zoom_manager.zoom_level > 3 {
                     zoom_manager.last_zoom_level = zoom_manager.zoom_level;
                     zoom_manager.zoom_level -= 1;
+
                     despawn_all_chunks(commands, chunk_query);
                     chunk_manager.spawned_chunks.clear();
                     chunk_manager.to_spawn_chunks.clear();
-                    chunk_manager.refrence_long_lat += Coord {lat: level_to_tile_width(zoom_manager.last_zoom_level) /2., long: level_to_tile_width(zoom_manager.last_zoom_level) /2.};
-                    // camera.translation = Vec3::new(0., 0., 1.);
+
+                    // This ensures that the tile size stays correct
+                    chunk_manager.refrence_long_lat *= Coord {lat: 2., long: 2.};
+
+                    camera.translation = location_manager.location.to_game_coords(chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size.into()).extend(1.0);
+                    
                     projection.scale = 1.0;
                 } else if projection.scale < 1. && projection.scale != 0. && zoom_manager.zoom_level < 14 {
                     zoom_manager.last_zoom_level = zoom_manager.zoom_level;
                     zoom_manager.zoom_level += 1;
+
                     despawn_all_chunks(commands, chunk_query);
                     chunk_manager.spawned_chunks.clear();
                     chunk_manager.to_spawn_chunks.clear();
-                    chunk_manager.refrence_long_lat -= Coord {lat: level_to_tile_width(zoom_manager.zoom_level)/2., long: level_to_tile_width(zoom_manager.zoom_level)/2.};
-                    // camera.translation = Vec3::new(0., 0., 1.);
-                    // projection.scale = 1.0;
+
+                    // This ensures that the tile size stays correct
+                    chunk_manager.refrence_long_lat /= Coord {lat: 2., long: 2.};
+                    
+                    camera.translation = location_manager.location.to_game_coords(chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size.into()).extend(1.0);
+
+                    projection.scale = 1.0;
                 }
                 chunk_manager.update = true;
             }
@@ -190,20 +212,17 @@ fn spawn_chunks_around_camera(
                         let tx = chunk_sender.clone(); // Clone existing sender
                         let zoom_manager = zoom_manager.clone();
                         let world_pos = chunk_pos_to_world_pos(chunk_pos, zoom_manager.tile_size);
-                        let position = world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), chunk_manager.refrence_long_lat.into(), zoom_manager.zoom_level.into(), zoom_manager.tile_size.into());
-                        let offset = coord_offset(position.1, position.0, zoom_manager.zoom_level);
+                        let position = world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size);
 
                         thread::spawn(move || {
-                            let tile_coords = geo_to_tile(position.1, position.0, zoom_manager.zoom_level);
-                            let tile_key = (tile_coords.0 as i64, tile_coords.1 as i64, zoom_manager.zoom_level);
-    
-                            let tile_image = get_ofm_data(tile_key.0 as u64, tile_key.1 as u64, tile_key.2 as u64, zoom_manager.tile_size as u32);
+                            let tile_coords = position.to_tile_coords(zoom_manager.zoom_level);
+
+                            let tile_image = get_ofm_data(tile_coords.x as u64, tile_coords.y as u64, zoom_manager.zoom_level as u64, zoom_manager.tile_size as u32);
                             if let Err(e) = tx.send((chunk_pos, tile_image)) {
                                 eprintln!("Failed to send chunk data: {:?}", e);
                             }
                         });
 
-                        chunk_manager.offset = Vec2::new(offset.0 as f32, offset.1 as f32);
                         chunk_manager.spawned_chunks.insert(chunk_pos);
                     }
                 }
@@ -270,6 +289,6 @@ fn despawn_all_chunks(
     chunks_query: Query<(Entity, &TileMarker)>,
 ) {
     for (entity, _) in chunks_query.iter() {
-            commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn_recursive();
     }
 }

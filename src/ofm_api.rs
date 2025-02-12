@@ -5,7 +5,7 @@ use mvt_reader::Reader;
 use raqote::{AntialiasMode, DrawOptions, DrawTarget, PathBuilder, SolidSource, Source, StrokeStyle};
 use rstar::{RTree, RTreeObject, AABB};
 
-use crate::{level_to_tile_width, tile::Coord};
+use crate::tile::{level_to_tile_width, Coord};
 
 #[derive(Resource, Clone)]
 pub struct OfmTiles {
@@ -58,12 +58,12 @@ pub fn tile_width_meters(zoom: u32) -> f64 {
 
 pub fn get_ofm_image(x: u64, y: u64, zoom: u64, tile_size: u32) -> Image {
     let data = send_ofm_request(x, y, zoom);
-    buffer_to_bevy_image(ofm_to_data_image(data, tile_size, zoom as u32, x, y), tile_size)
+    buffer_to_bevy_image(ofm_to_data_image(data, tile_size, zoom as u32), tile_size)
 }
 
 pub fn get_ofm_data(x: u64, y: u64, zoom: u64, tile_size: u32) -> Vec<u8> {
     let data = send_ofm_request(x, y, zoom);
-    ofm_to_data_image(data, tile_size, zoom as u32, x, y)
+    ofm_to_data_image(data, tile_size, zoom as u32)
 }
 
 pub fn buffer_to_bevy_image(data: Vec<u8>, tile_size: u32) -> Image {
@@ -115,7 +115,7 @@ fn send_ofm_request(x: u64, y: u64, zoom: u64) -> Vec<u8> {
 }
 
 /// This converts it to an image which is as many meters as the tile width This would be AAAMAAZZZING to multithread
-fn ofm_to_data_image(data: Vec<u8>, size: u32, zoom: u32, x: u64, y: u64) -> Vec<u8> {
+fn ofm_to_data_image(data: Vec<u8>, size: u32, zoom: u32) -> Vec<u8> {
     let tile = Reader::new(data).unwrap();
     //let size_multiplyer = TILE_QUALITY as u32 / size ;
     let mut dt = DrawTarget::new(size as i32 , size as i32);
@@ -154,7 +154,7 @@ fn ofm_to_data_image(data: Vec<u8>, size: u32, zoom: u32, x: u64, y: u64) -> Vec
         );
     }
     
-    let scale = (size as f32 / tile_width_meters(14.try_into().unwrap()).round() as f32) * 0.597014925373;
+    let scale = (size as f32 / tile_width_meters(14.try_into().unwrap()).round() as f32) * 0.597_014_9;
     dt.set_transform(&raqote::Transform::scale(scale, scale));
 
     // Iterate over layers and features]
