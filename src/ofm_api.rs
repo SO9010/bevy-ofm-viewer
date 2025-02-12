@@ -286,6 +286,24 @@ fn ofm_to_data_image(data: Vec<u8>, size: u32, zoom: u32) -> Vec<u8> {
                             alpha: 0.5,
                         },
                     );
+                } else if title == ("water") {
+                    let path = pb.finish();
+                    dt.fill(
+                        &path,
+                        // For some reason red and blue are swapped
+                    &Source::Solid(SolidSource {
+                            b: 0x00,
+                            g: 0x00,
+                            r: 0xff,
+                            a: 0xff,
+                        }),        
+                        
+                        &DrawOptions {
+                            antialias: AntialiasMode::Gray,
+                            blend_mode: raqote::BlendMode::SrcOver,
+                            alpha: 0.5,
+                        },
+                    );
                 } else if title.contains("water") || title.contains("mountian") || title.contains("land") {
 
                 }
