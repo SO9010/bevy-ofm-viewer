@@ -120,7 +120,7 @@ impl Tile {
         let n = 2.0f64.powi(self.zoom as i32);
         let lon_deg = self.x as f64 / n * 360.0 - 180.0;
         let lat_deg = (PI * (1.0 - 2.0 * self.y as f64  / n)).sinh().atan().to_degrees();
-        Coord::new(lat_deg as f32, lon_deg as f32)
+        Coord::new(lat_deg as f32, normalize_longitude(lon_deg) as f32)
     }
 
     pub fn to_game_coords(&self, offset: Coord, zoom: u32, tile_quality: f64) -> Vec2 {
@@ -135,7 +135,6 @@ impl Tile {
 pub fn level_to_tile_width(level: u32) -> f32 {
     360.0 / (2_i32.pow(level) as f32)
 }
-
 
 pub fn world_mercator_to_lat_lon(
     x_offset: f64,
@@ -162,7 +161,7 @@ pub fn world_mercator_to_lat_lon(
     let lat = 2.0 * lat.exp().atan() - std::f64::consts::FRAC_PI_2;
     let lat = lat.to_degrees();
    
-    Coord::new(lat as f32, lon as f32)
+    Coord::new(lat as f32, normalize_longitude(lon) as f32)
 }
 
 pub fn lat_lon_to_world_mercator_with_offset(
@@ -189,4 +188,15 @@ pub fn lat_lon_to_world_mercator_with_offset(
     let y_offset = (y - refrence.y as f64) / scale;
 
     (x_offset, y_offset)
+}
+
+fn normalize_longitude(lon: f64) -> f64 {
+    let mut lon = lon;
+    while lon > 180.0 {
+        lon -= 360.0;
+    }
+    while lon < -180.0 {
+        lon += 360.0;
+    }
+    lon
 }

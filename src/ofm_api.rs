@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use bevy::{asset::RenderAssetUsages, ecs::system::Resource, image::Image, render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
+use bevy::{asset::RenderAssetUsages, ecs::system::Resource, image::Image, log::info, render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
 use mvt_reader::Reader;
 use raqote::{AntialiasMode, DrawOptions, DrawTarget, PathBuilder, SolidSource, Source, StrokeStyle};
 use rstar::{RTree, RTreeObject, AABB};
@@ -57,12 +57,16 @@ pub fn tile_width_meters(zoom: u32) -> f64 {
 }
 
 pub fn get_ofm_image(x: u64, y: u64, zoom: u64, tile_size: u32) -> Image {
-    let data = send_ofm_request(x, y, zoom);
+    let data = send_vector_request(x, y, zoom, "https://tiles.openfreemap.org/planet/20250122_001001_pt".to_string());
     buffer_to_bevy_image(ofm_to_data_image(data, tile_size, zoom as u32), tile_size)
 }
 
-pub fn get_ofm_data(x: u64, y: u64, zoom: u64, tile_size: u32) -> Vec<u8> {
-    let data = send_ofm_request(x, y, zoom);
+pub fn get_rasta_data(x: u64, y: u64, zoom: u64) -> Vec<u8> {
+    send_image_tile_request(x, y, zoom, "https://tile.openstreetmap.org".to_string())
+}
+
+pub fn get_mvt_data(x: u64, y: u64, zoom: u64, tile_size: u32) -> Vec<u8> {
+    let data = send_vector_request(x, y, zoom, "https://tiles.openfreemap.org/planet/20250122_001001_pt".to_string());
     ofm_to_data_image(data, tile_size, zoom as u32)
 }
 
@@ -80,7 +84,50 @@ pub fn buffer_to_bevy_image(data: Vec<u8>, tile_size: u32) -> Image {
     )
 }
 
-fn send_ofm_request(x: u64, y: u64, zoom: u64) -> Vec<u8> {
+/// Rather than getting a vector trile which can be tricky to work with, we get a buffer of an image 
+/// https://wiki.openstreetmap.org/wiki/Raster_tile_providers
+fn send_image_tile_request(x: u64, y: u64, zoom: u64, url: String) -> Vec<u8> {
+    let cache_dir = "cache";
+    let cache_file = format!("{}/{}_{}_{}.png", cache_dir, zoom, x, y);
+    
+    // Check if the file exists in the cache
+    if Path::new(&cache_file).exists() {
+        return png_to_image(fs::read(&cache_file).expect("Failed to read cache file"));
+    }
+
+    // If not in cache, fetch from the network
+    let mut status = 429;
+    while status == 429 {
+        if let Ok(response) = ureq::get(format!("{}/{}/{}/{}.png", url, zoom, x, y).as_str()).call() {
+            info!("{}", format!("{}/{}/{}/{}.png", url, zoom, x, y));
+            if response.status() == 200 {
+                let mut reader = response.into_reader();
+                let mut bytes = Vec::new();
+                reader.read_to_end(&mut bytes).expect("Failed to read bytes from response");
+
+                // Save to cache
+                fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+                fs::write(&cache_file, &bytes).expect("Failed to write cache file");
+
+                return png_to_image(bytes);
+            } else if response.status() == 429 {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            } else {
+                status = 0;
+            }
+        }
+    }
+    vec![]
+}
+
+// Helper convert png to uncompressed image
+fn png_to_image(data: Vec<u8>) -> Vec<u8> {
+    let img = image::load_from_memory(&data).expect("Failed to decode PNG data");
+    let rgba = img.to_rgba8();
+    rgba.to_vec()
+}
+
+fn send_vector_request(x: u64, y: u64, zoom: u64, url: String) -> Vec<u8> {
     let cache_dir = "cache";
     let cache_file = format!("{}/{}_{}_{}.pbf", cache_dir, zoom, x, y);
 
@@ -90,7 +137,6 @@ fn send_ofm_request(x: u64, y: u64, zoom: u64) -> Vec<u8> {
     }
 
     // If not in cache, fetch from the network
-    let url = "https://tiles.openfreemap.org/planet/20250122_001001_pt";
     let mut status = 429;
     while status == 429 {
         if let Ok(response) = ureq::get(format!("{}/{}/{}/{}.pbf", url, zoom, x, y).as_str()).call() {

@@ -13,6 +13,7 @@ geo = "0.29.3"
 raqote = "0.8.5"
 rstar = "0.12.2"
 ureq = "2.12.1"
+image = "0.25.5"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]

@@ -1,4 +1,4 @@
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::{prelude::*, window::PrimaryWindow, winit::WinitSettings};
 use bevy_pancam::PanCamPlugin;
 use camera::{camera_middle_to_lat_long, setup_camera};
 use debug::DebugPlugin;
@@ -15,7 +15,8 @@ pub mod camera;
 
 pub const STARTING_LONG_LAT: Coord = Coord::new(0.011, 0.011);
 pub const STARTING_DISPLACEMENT: Coord = Coord::new(52.207_59, 0.186_745_48);
-pub const TILE_QUALITY: i32 = 512;
+// This can be changed, it changes the size of each tile too.
+pub const TILE_QUALITY: i32 = 256;
 
 fn main() {
     App::new()
@@ -26,6 +27,7 @@ fn main() {
         }),
         ..Default::default()
     }), PanCamPlugin, TileMapPlugin))
+    .insert_resource(WinitSettings::default())
     .add_systems(Startup, setup_camera)
     .add_systems(Update, handle_mouse)
     .insert_resource(Location::default())
