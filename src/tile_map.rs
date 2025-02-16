@@ -5,7 +5,7 @@ use bevy::{prelude::*, utils::{HashMap, HashSet}};
 use bevy_ecs_tilemap::{map::{TilemapGridSize, TilemapId, TilemapTexture, TilemapTileSize}, tiles::{TileBundle, TilePos, TileStorage}, TilemapBundle, TilemapPlugin};
 use crossbeam_channel::{bounded, Receiver, Sender};
 
-use crate::{ofm_api::{buffer_to_bevy_image, get_rasta_data}, tile::{world_mercator_to_lat_lon, Coord}, STARTING_DISPLACEMENT, STARTING_LONG_LAT, TILE_QUALITY};
+use crate::{api::{buffer_to_bevy_image, get_rasta_data}, tile::{world_mercator_to_lat_lon, Coord}, STARTING_DISPLACEMENT, STARTING_LONG_LAT, TILE_QUALITY};
 
 // For this example, don't choose too large a chunk size.
 const CHUNK_SIZE: UVec2 = UVec2 { x: 1, y: 1 };

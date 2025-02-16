@@ -1,7 +1,7 @@
-use bevy::{prelude::*, core_pipeline::bloom::Bloom};
+use bevy::{core_pipeline::bloom::Bloom, prelude::*, window::PrimaryWindow};
 use bevy_pancam::{DirectionKeys, PanCam};
 
-use crate::{tile::{world_mercator_to_lat_lon, Coord}, STARTING_DISPLACEMENT, STARTING_LONG_LAT, TILE_QUALITY};
+use crate::{tile::{world_mercator_to_lat_lon, Coord}, tile_map::{ChunkManager, Location, ZoomManager}, STARTING_DISPLACEMENT, STARTING_LONG_LAT, TILE_QUALITY};
 
 
 pub fn setup_camera(mut commands: Commands) {
@@ -74,4 +74,38 @@ pub fn camera_middle_to_lat_long(
 ) -> Coord {
     let camera_translation = transform.translation();
     world_mercator_to_lat_lon(camera_translation.x.into(), camera_translation.y.into(), reference, zoom, quality)
+}
+
+pub fn handle_mouse(
+    buttons: Res<ButtonInput<MouseButton>>,
+    q_windows: Query<&Window, With<PrimaryWindow>>,
+    camera: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    zoom_manager: Res<ZoomManager>,
+    mut location_manager: ResMut<Location>,
+    mut chunk_manager: ResMut<ChunkManager>,
+) {
+    let (camera, camera_transform) = camera.single();
+    if buttons.pressed(MouseButton::Left) {
+        if let Some(position) = q_windows.single().cursor_position() {
+            /*
+            let world_pos = camera.viewport_to_world_2d(camera_transform, position).unwrap();
+            let long_lat = world_mercator_to_lat_lon(world_pos.x as f64, world_pos.y as f64, chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size);
+            let closest_tile = long_lat.to_tile_coords(zoom_manager.zoom_level).to_lat_long();
+            info!("{:?}", closest_tile);
+            */
+
+            let world_pos = camera.viewport_to_world_2d(camera_transform, position).unwrap();
+            info!("{:?}", world_mercator_to_lat_lon(world_pos.x.into(), world_pos.y.into(), chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size));
+        }
+    }   
+    if buttons.pressed(MouseButton::Middle){
+        chunk_manager.update = true;
+    }
+    if buttons.just_released(MouseButton::Middle) {
+        let movement = camera_middle_to_lat_long(camera_transform, zoom_manager.zoom_level, zoom_manager.tile_size, chunk_manager.refrence_long_lat);
+        if movement != location_manager.location {
+            location_manager.location = movement;
+            chunk_manager.update = true;
+        }
+    }
 }
