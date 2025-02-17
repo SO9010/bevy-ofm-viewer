@@ -39,7 +39,7 @@ fn main() {
     .add_systems(Startup, setup_camera)
     .add_systems(Update, handle_mouse)
     .insert_resource(Location::default())
-    .add_plugins((DebugPlugin, UIPlugin))
+    .add_plugins(DebugPlugin)
     .insert_resource(OfmTiles {
         tiles: RTree::new(),
         tiles_to_render: Vec::new(),
