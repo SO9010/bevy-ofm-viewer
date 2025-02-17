@@ -55,7 +55,7 @@ pub fn camera_space_to_lat_long_rect(
 
     // Compute the world-space rectangle
     // The reason for not dividing by 2 is to make the rectangle larger, as then it will mean that we can load more data
-    let left = camera_translation.x ;
+    let left = camera_translation.x;
     let right = camera_translation.x  + ((window_width * projection.scale) / 2.0);
     let bottom = camera_translation.y + ((window_height * projection.scale) / 2.0);
     let top = camera_translation.y;
