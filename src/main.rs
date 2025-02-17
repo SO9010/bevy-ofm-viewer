@@ -6,14 +6,12 @@ use ofm_api::OfmTiles;
 use rstar::RTree;
 use tile::{world_mercator_to_lat_lon, Coord};
 use tile_map::{ChunkManager, Location, TileMapPlugin, ZoomManager};
-use ui::MapUIPlugin;
 
 pub mod ofm_api;
 pub mod tile;
 pub mod tile_map;
 pub mod debug;
 pub mod camera;
-pub mod ui;
 
 pub const STARTING_LONG_LAT: Coord = Coord::new(0.011, 0.011);
 pub const STARTING_DISPLACEMENT: Coord = Coord::new(52.207_59, 0.186_745_48);
@@ -41,7 +39,7 @@ fn main() {
     .add_systems(Startup, setup_camera)
     .add_systems(Update, handle_mouse)
     .insert_resource(Location::default())
-    .add_plugins((DebugPlugin, MapUIPlugin))
+    .add_plugins(DebugPlugin)
     .insert_resource(OfmTiles {
         tiles: RTree::new(),
         tiles_to_render: Vec::new(),

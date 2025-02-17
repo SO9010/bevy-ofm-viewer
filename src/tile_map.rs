@@ -20,7 +20,7 @@ impl Plugin for TileMapPlugin {
             .add_plugins(TilemapPlugin)
             .insert_resource(ChunkManager::default())
             .insert_resource(ZoomManager::default())
-            .add_systems(Update, (spawn_chunks_around_camera, spawn_to_needed_chunks, despawn_all_chunks))
+            .add_systems(Update, (spawn_chunks_around_camera, spawn_to_needed_chunks))
             .add_systems(Update, detect_zoom_level)
             .add_systems(FixedUpdate, (despawn_outofrange_chunks, read_map_receiver));
     }
@@ -51,7 +51,6 @@ pub struct ChunkManager {
     pub to_spawn_chunks: HashMap<IVec2, Vec<u8>>, // Store raw image data
     pub update: bool, // Store raw image data
     pub refrence_long_lat: Coord,
-    pub despawn_all: bool,
 }
 
 impl Default for ChunkManager {
@@ -61,7 +60,6 @@ impl Default for ChunkManager {
             to_spawn_chunks: HashMap::default(),
             update: true,
             refrence_long_lat: STARTING_LONG_LAT,
-            despawn_all: false,
         }
     }
 }
@@ -79,40 +77,13 @@ impl Default for Location {
     }
 }
 
-pub fn change_zoom_level(
-    chunk_manager: &mut ResMut<ChunkManager>,
-    zoom_manager: &mut ResMut<ZoomManager>,
-    location_manager: &ResMut<Location>,
-    camera_query: &mut Query<&mut Transform, With<Camera>>,
-    ortho_projection_query: &mut Query<&mut OrthographicProjection, With<Camera>>,
-    zoom_level: u32,
-) {
-    if let Ok(mut projection) = ortho_projection_query.get_single_mut() {
-        if let Ok(mut camera) = camera_query.get_single_mut() {
-            if zoom_level > 1 && zoom_level < 19 {
-                zoom_manager.last_zoom_level = zoom_manager.zoom_level;
-                zoom_manager.zoom_level = zoom_level;
-    
-                chunk_manager.despawn_all = true;
-                chunk_manager.spawned_chunks.clear();
-                chunk_manager.to_spawn_chunks.clear();
-    
-                // This ensures that the tile size stays correct
-                chunk_manager.refrence_long_lat *= Coord { lat: 2., long: 2. };
-    
-                camera.translation = location_manager.location.to_game_coords(chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size.into()).extend(1.0);
-                projection.scale = 1.0;
-                chunk_manager.update = true;
-            }
-        }
-    }
-}
-
 fn detect_zoom_level(
     mut chunk_manager: ResMut<ChunkManager>,
     mut zoom_manager: ResMut<ZoomManager>,
     mut ortho_projection_query: Query<&mut OrthographicProjection, With<Camera>>,
+    chunk_query: Query<(Entity, &TileMarker)>,
     mut camera_query: Query<&mut Transform, With<Camera>>,
+    commands: Commands,
     location_manager: ResMut<Location>,
 ) {
     if let Ok(mut projection) = ortho_projection_query.get_single_mut() {
@@ -120,14 +91,35 @@ fn detect_zoom_level(
             if projection.scale != zoom_manager.last_projection_level {
                 zoom_manager.last_projection_level = projection.scale;
                 if projection.scale > 1. && projection.scale != 0. && zoom_manager.zoom_level > 3 {
+                    zoom_manager.last_zoom_level = zoom_manager.zoom_level;
+                    zoom_manager.zoom_level -= 1;
 
-                    let zoom = zoom_manager.zoom_level.clone() - 1;
-                    change_zoom_level(&mut chunk_manager, &mut zoom_manager, &location_manager, &mut camera_query, &mut ortho_projection_query, zoom);
+                    despawn_all_chunks(commands, chunk_query);
+                    chunk_manager.spawned_chunks.clear();
+                    chunk_manager.to_spawn_chunks.clear();
+
+                    // This ensures that the tile size stays correct
+                    chunk_manager.refrence_long_lat *= Coord {lat: 2., long: 2.};
+
+                    camera.translation = location_manager.location.to_game_coords(chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size.into()).extend(1.0);
+                    
+                    projection.scale = 1.0;
                 } else if projection.scale < 1. && projection.scale != 0. && zoom_manager.zoom_level < 19 {
+                    zoom_manager.last_zoom_level = zoom_manager.zoom_level;
+                    zoom_manager.zoom_level += 1;
 
-                    let zoom = zoom_manager.zoom_level.clone() + 1;
-                    change_zoom_level(&mut chunk_manager, &mut zoom_manager, &location_manager, &mut camera_query, &mut ortho_projection_query, zoom);
+                    despawn_all_chunks(commands, chunk_query);
+                    chunk_manager.spawned_chunks.clear();
+                    chunk_manager.to_spawn_chunks.clear();
+
+                    // This ensures that the tile size stays correct
+                    chunk_manager.refrence_long_lat /= Coord {lat: 2., long: 2.};
+                    
+                    camera.translation = location_manager.location.to_game_coords(chunk_manager.refrence_long_lat, zoom_manager.zoom_level, zoom_manager.tile_size.into()).extend(1.0);
+
+                    projection.scale = 1.0;
                 }
+                chunk_manager.update = true;
             }
         }
     }
@@ -298,12 +290,8 @@ fn despawn_outofrange_chunks(
 fn despawn_all_chunks(
     mut commands: Commands,
     chunks_query: Query<(Entity, &TileMarker)>,
-    mut chunk_manager: ResMut<ChunkManager>,
 ) {
-    if chunk_manager.despawn_all {
-        chunk_manager.despawn_all = false;
-        for (entity, _) in chunks_query.iter() {
-            commands.entity(entity).despawn_recursive();
-        }
+    for (entity, _) in chunks_query.iter() {
+        commands.entity(entity).despawn_recursive();
     }
 }
