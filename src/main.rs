@@ -1,4 +1,4 @@
-use bevy::{prelude::*, window::PrimaryWindow, winit::WinitSettings};
+use bevy::{prelude::*, window::PrimaryWindow, winit::{UpdateMode, WinitSettings}};
 use bevy_pancam::PanCamPlugin;
 use camera::{camera_middle_to_lat_long, setup_camera};
 use debug::DebugPlugin;
@@ -22,16 +22,24 @@ fn main() {
     App::new()
     .add_plugins((DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-            title: "OFM Viewer".to_string(),
+            title: "Map Viewer".to_string(),
             ..Default::default()
         }),
         ..Default::default()
-    }), PanCamPlugin, TileMapPlugin))
-    .insert_resource(WinitSettings::default())
+    }),PanCamPlugin, TileMapPlugin,))
+    .insert_resource(WinitSettings {
+        unfocused_mode: UpdateMode::Reactive {
+            wait: std::time::Duration::from_secs(1),
+            react_to_device_events: true,
+            react_to_user_events: true,
+            react_to_window_events: true,
+        },
+        ..Default::default()
+    })
     .add_systems(Startup, setup_camera)
     .add_systems(Update, handle_mouse)
     .insert_resource(Location::default())
-    .add_plugins(DebugPlugin)
+    .add_plugins((DebugPlugin, UIPlugin))
     .insert_resource(OfmTiles {
         tiles: RTree::new(),
         tiles_to_render: Vec::new(),
