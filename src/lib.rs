@@ -30,3 +30,5 @@ impl Plugin for OsmViewerPlugin {
             .insert_resource(ClearColor(Color::from(Srgba { red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0 })));
     }
 }
+
+// Have an optiuonal compulation section which allows users to use vector tiles, at the expence of having to install more dependencies. And worse performance.
